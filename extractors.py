@@ -1,5 +1,5 @@
 """
-Extraktion von Metadaten – robuste Muster für D7-Newsletter.
+Extraktion von Deadline und Institution – der Rest kommt vom LLM.
 """
 
 import re
@@ -29,7 +29,6 @@ class DeadlineExtractor:
     def extract(cls, text: str) -> Optional[str]:
         if not text:
             return None
-        # Header-Bereich
         header = re.search(r"(\d{2}\.\d{2}\.\d{4})\s*[-–]\s*(\d{2}\.\d{2}\.\d{4})", text)
         if header:
             return cls._parse_date_str(header.group(2))
@@ -83,35 +82,6 @@ class DeadlineExtractor:
         return None
 
 
-class FundingExtractor:
-    """
-    Extrahiert die projektbezogene Förderhöhe (ignoriert Gesamtbudgets).
-    """
-    PATTERNS = [
-        r"Funding\s*(?:up\s+to\s+)?\d{1,3}%\s+of\s+(?:the\s+)?eligible\s+(?:project-?related\s+)?expenses(?:\s+as\s+well\s+as\s+a\s+project\s+lump\s+sum\s+of\s+\d{1,2}%)?",
-        r"Förderhöhe\s*(?:bis\s+zu\s+)?\d{1,3}%\s+der\s+zuwendungsfähigen\s+(?:projektbezogenen\s+)?Ausgaben(?:\s+sowie\s+eine\s+Projektpauschale\s+in\s+Höhe\s+von\s+\d{1,2}%)?",
-        r"Funding\s*:?\s*up\s+to\s+€?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?(?:\s*\([^)]+\))?",
-        r"Förderhöhe\s*:?\s*bis\s+zu\s+(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?",
-        r"Zuwendung\s+von\s+(\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?)\s+Euro",
-    ]
-
-    IGNORE = ["insgesamt stehen", "Gesamtbudget", "total budget", "Maßnahme stehen"]
-
-    @classmethod
-    def extract(cls, text: str) -> Optional[str]:
-        if not text:
-            return None
-        text_lower = text.lower()
-        # Ignorieren wir nicht komplett, aber priorisieren projektbezogene Angaben
-        for pat in cls.PATTERNS:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                if m.groups():
-                    return m.group(1).strip()
-                return m.group(0).strip()
-        return None
-
-
 class InstitutionExtractor:
     INDICATORS = [
         r"Bundesministerium\s+für\s+(?:Bildung\s+und\s+Forschung|Forschung,\s+Technologie\s+und\s+Raumfahrt|Wirtschaft\s+und\s+Energie|Umwelt)[^,\n]*",
@@ -119,6 +89,7 @@ class InstitutionExtractor:
         r"BMBF|BMFTR|BMWE|BMWK|BMUV",
         r"Deutsche\s+Forschungsgemeinschaft|DFG",
         r"European\s+Research\s+Council|ERC",
+        r"Fonds\s+der\s+Chemischen\s+Industrie|FCI",
     ]
 
     @classmethod
@@ -133,74 +104,8 @@ class InstitutionExtractor:
         return None
 
 
-class AimExtractor:
-    PATTERNS = [
-        r"Aim\s*(?:of\s+the\s+funding\s+measure\s+is\s+to\s+)?([^\n]{50,300})",
-        r"Ziel\s+der\s+Förderung\s+ist\s+es,?\s+([^\n]{50,300})",
-        r"The\s+purpose\s+of\s+this\s+funding\s+measure\s+is\s+to\s+([^\n]{50,300})",
-    ]
-
-    @classmethod
-    def extract(cls, text: str) -> Optional[str]:
-        if not text:
-            return None
-        for pat in cls.PATTERNS:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                return m.group(1).strip()
-        return None
-
-
-class TargetGroupExtractor:
-    PATTERNS = [
-        r"Target\s+group\s*:?\s*([^\n]{20,200})",
-        r"Zielgruppe\s*:?\s*([^\n]{20,200})",
-        r"Antragsberechtigt\s+sind\s+([^\n]{20,200})",
-    ]
-
-    @classmethod
-    def extract(cls, text: str) -> Optional[str]:
-        if not text:
-            return None
-        for pat in cls.PATTERNS:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                return m.group(1).strip()
-        return None
-
-
-class DurationExtractor:
-    PATTERNS = [
-        r"(?:Duration|Dauer)\s*(?:up\s+to\s+|bis\s+zu\s+)?(\d+(?:\s*[-–]\s*\d+)?\s*(?:years?|months?|Jahre?|Monate?))",
-        r"(\d+\s*(?:years?|Jahre?))\s+(?:funding\s+period|Laufzeit)",
-    ]
-
-    @classmethod
-    def extract(cls, text: str) -> Optional[str]:
-        if not text:
-            return None
-        for pat in cls.PATTERNS:
-            m = re.search(pat, text, re.I)
-            if m:
-                return m.group(1).strip()
-        return None
-
-
-# Wrapper-Funktionen für einfachen Import
 def extract_deadline(text: str) -> Optional[str]:
     return DeadlineExtractor.extract(text)
 
-def extract_funding(text: str) -> Optional[str]:
-    return FundingExtractor.extract(text)
-
 def extract_institution(text: str) -> Optional[str]:
     return InstitutionExtractor.extract(text)
-
-def extract_aim(text: str) -> Optional[str]:
-    return AimExtractor.extract(text)
-
-def extract_target_group(text: str) -> Optional[str]:
-    return TargetGroupExtractor.extract(text)
-
-def extract_duration(text: str) -> Optional[str]:
-    return DurationExtractor.extract(text)
