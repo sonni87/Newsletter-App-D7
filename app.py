@@ -1,12 +1,66 @@
 """
 Streamlit App – Prompt-Client für KI:connect mit Übersetzungsoption.
-Standardmäßig deutsche Analyse, bei Bedarf Übersetzung ins Englische.
+Layout angepasst an das Corporate Design der Universität zu Köln.
 """
 
 import streamlit as st
 from llm_client import LLMClient, KIConnectError
 
-st.set_page_config(page_title="KI:connect Prompt", page_icon="🤖", layout="wide")
+# --- Seiteneinstellungen & Uni-Köln-Farben ---
+st.set_page_config(
+    page_title="KI:connect Prompt",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS für Uni-Köln-Design
+st.markdown("""
+<style>
+    /* Hauptüberschrift in Uni-Blau */
+    h1 {
+        color: #005176 !important;
+    }
+    
+    /* Sidebar-Hintergrund */
+    section[data-testid="stSidebar"] {
+        background-color: #F0F4F7;
+    }
+    
+    /* Buttons in Uni-Türkis */
+    .stButton > button {
+        background-color: #009DCC;
+        color: white;
+        border: none;
+    }
+    .stButton > button:hover {
+        background-color: #007BA1;
+        color: white;
+    }
+    
+    /* Download-Buttons */
+    .stDownloadButton > button {
+        background-color: #EF7872;
+        color: white;
+        border: none;
+    }
+    .stDownloadButton > button:hover {
+        background-color: #D9655F;
+        color: white;
+    }
+    
+    /* Links */
+    a {
+        color: #009DCC !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        color: #005176;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🤖 KI:connect – Flexibler Prompt‑Client mit Übersetzung")
 st.markdown("Gib deinen Prompt und den Ausschreibungstext ein. Die Antwort wird im Markdown‑Format ausgegeben und kann exportiert werden.")
 
@@ -59,21 +113,46 @@ with st.sidebar:
     temperature = st.slider("Temperature", 0.0, 1.0, 0.1, 0.05)
     max_tokens = st.number_input("Max Tokens", 100, 4096, 2048, 100)
 
-# Standard-Prompt (Deutsch)
-default_prompt = """Du bist Experte für Forschungsförderung und erstellst Einträge für einen Fördernewsletter (D7-Format).
-Analysiere den folgenden Text einer Förderausschreibung und erstelle eine kurze, strukturierte Zusammenfassung mit diesen Feldern:
+# ========== PROMPT (Ihre Vorgabe) ==========
+default_prompt = """Du bist Redakteur eines Fördernewsletters für Forschende und Verwaltungsmitarbeiter 
+an deutschen Hochschulen und Forschungseinrichtungen. Deine Aufgabe ist es, 
+Förderausschreibungen präzise und verständlich zusammenzufassen, damit die Leser 
+schnell einschätzen können, ob eine Ausschreibung für sie relevant ist.
 
-**Förderung:** (4-6 Sätze: Was wird gefördert? Was ist das Ziel? Welche Kosten sind förderfähig?)
-**Zielgruppe:** (Wer ist antragsberechtigt? Welche Einrichtungen/Personen?)
-**Dauer:** (Projektlaufzeit, falls nicht genannt "Keine Angabe")
-**Förderhöhe:** (Maximale Fördersumme oder Prozentangabe, sonst "Keine Angabe")
-**Fristende:** (Einreichungsfrist, sonst "Keine Angabe")
-**Website:** (URL der Ausschreibung)
+Analysiere die folgende Förderausschreibung und erstelle eine strukturierte 
+Zusammenfassung. Halte dich exakt an die vorgegebenen Felder und gib ausschließlich 
+die strukturierten Felder aus – ohne Einleitung, Kommentar oder abschließende 
+Bemerkungen.
 
-Text der Ausschreibung:
+Regeln:
+- Ist eine Information nicht im Text enthalten, schreibe "Keine Angabe".
+- Bei Spannen oder Varianten (z.B. unterschiedliche Förderhöhen je nach Projekttyp) 
+  nenne den maximalen Wert und ergänze den Kontext in Klammern.
+- Formuliere sachlich und präzise, vermeide Marketingsprache aus der Ausschreibung.
+- Verwende deutsche Fachbegriffe, die im Hochschul- und Forschungskontext üblich sind.
+
+<ausschreibung>
 {text}
+</ausschreibung>
 
-Antworte NUR mit den formatierten Feldern. Keine zusätzlichen Erklärungen."""
+Erstelle die Zusammenfassung in folgendem Format:
+
+**Förderung:** (4–6 Sätze: Was wird gefördert? Was ist das Ziel des Programms? 
+Welche Kosten sind förderfähig?)
+
+**Zielgruppe:** (Wer ist antragsberechtigt? Welche Einrichtungen oder Personen 
+können einen Antrag stellen?)
+
+**Dauer:** (Projektlaufzeit)
+
+**Förderhöhe:** (Maximale Fördersumme oder Förderquote)
+
+**Eigenanteil:** (Wird von antragstellenden Einrichtungen ein Eigenanteil gefordert? 
+Wenn ja: Höhe oder Form des Eigenanteils)
+
+**Fristende:** (Einreichungsfrist)
+
+**Website:** (URL der Ausschreibung)"""
 
 # Zwei Spalten für Prompt und Ausschreibungstext
 col1, col2 = st.columns(2)
