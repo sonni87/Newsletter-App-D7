@@ -17,6 +17,9 @@ class KIConnectError(Exception):
     pass
 
 
+OllamaError = KIConnectError
+
+
 class LLMClient:
     """Client für die KI:connect LLM API (OpenAI-kompatibler Endpunkt)."""
 
@@ -46,7 +49,10 @@ class LLMClient:
         key = os.environ.get("KICONNECT_API_KEY")
         if key:
             return key
-        raise KIConnectError("KICONNECT_API_KEY nicht gefunden.")
+        raise KIConnectError(
+            "KICONNECT_API_KEY nicht gefunden. "
+            "Bitte in der Seitenleiste eingeben oder als Umgebungsvariable setzen."
+        )
 
     def _ensure_api_key(self) -> str:
         if not self._api_key:
@@ -57,14 +63,19 @@ class LLMClient:
         api_key = self._ensure_api_key()
         headers = {"Authorization": f"Bearer {api_key}"}
         try:
-            response = requests.get(f"{self.base_url}/v1/models", headers=headers, timeout=10)
+            response = requests.get(
+                f"{self.base_url}/v1/models",
+                headers=headers,
+                timeout=10
+            )
             response.raise_for_status()
             data = response.json()
             models = [m.get("id", "") for m in data.get("data", [])]
             if models:
+                logger.info(f"Verfügbare Modelle: {models}")
                 return models
         except Exception as e:
-            logger.warning(f"Modellliste nicht abrufbar: {e}")
+            logger.warning(f"Konnte Modellliste nicht abrufen: {e}")
         return self.AVAILABLE_MODELS
 
     def check_connection(self) -> bool:
@@ -76,8 +87,10 @@ class LLMClient:
                 timeout=10
             )
             response.raise_for_status()
+            logger.info("KI:connect API-Verbindung erfolgreich.")
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Verbindungstest fehlgeschlagen: {e}")
             return False
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None,
@@ -96,7 +109,10 @@ class LLMClient:
             "stream": False
         }
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
 
         try:
             response = requests.post(
@@ -108,5 +124,14 @@ class LLMClient:
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
+        except requests.exceptions.Timeout:
+            raise KIConnectError(f"Timeout nach {self.timeout}s")
+        except requests.exceptions.HTTPError as e:
+            error_detail = ""
+            try:
+                error_detail = response.json()
+            except:
+                error_detail = response.text
+            raise KIConnectError(f"HTTP {response.status_code}: {error_detail}")
         except Exception as e:
-            raise KIConnectError(f"API-Fehler: {e}")
+            raise KIConnectError(f"Fehler: {e}")
