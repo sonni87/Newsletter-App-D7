@@ -1,5 +1,5 @@
 """
-Kernfunktion: URLs scrapen, LLM-Zusammenfassung im Newsletter-Format generieren.
+Kernfunktion: URLs scrapen, LLM-Zusammenfassung im D7-Newsletter-Format generieren.
 """
 
 import logging
@@ -11,58 +11,70 @@ from llm_client import LLMClient, KIConnectError
 
 logger = logging.getLogger(__name__)
 
-# Prompt exakt zugeschnitten auf das Format der Newsletter des Dezernats Forschungsmanagement
-SUMMARY_PROMPT_TEMPLATE = """
-Du bist Experte für Forschungsförderung und erstellst Einträge für einen Fördernewsletter einer Universität.
-Analysiere den folgenden Text einer Förderausschreibung und extrahiere die Informationen **ausschließlich im folgenden Format**.
+# Allgemeingültiger Prompt für beliebige Ausschreibungen
+LLM_PROMPT_TEMPLATE = """
+Du bist Experte für Forschungsförderung. Analysiere den folgenden Text einer Förderausschreibung und extrahiere die gefragten Informationen.
 
 TEXT:
 {text}
 
-FORMAT (exakt so antworten, keine zusätzlichen Erklärungen):
+FRAGEN (antworte kurz und prägnant, max. 2 Sätze pro Punkt):
+1. Ziel der Förderung: Was ist das Hauptziel? Was wird gefördert?
+2. Zielgruppe: Wer kann sich bewerben? Welche Einrichtungen/Personen?
+3. Dauer: Wie lange können Projekte gefördert werden? (z.B. "bis zu 3 Jahre", "12 Monate")
+4. Internes Verfahren: Gibt es einen Hinweis auf interne Antragswege, rechtsverbindliche Unterschrift oder eine Frist für die interne Abwicklung? Wenn ja, zitiere den Hinweis wörtlich.
 
-**Titel der Ausschreibung:** (offizieller Titel, falls nicht erkennbar: "Keine Angabe")
-**Förderinstitution:** {institution}
-**Ziel / Aim:** (1–2 Sätze, was wird gefördert? Ggf. auf Deutsch und Englisch, je nach Ausschreibung)
-**Zielgruppe / Target group:** (wer kann sich bewerben?)
-**Dauer / Duration:** (Projektlaufzeit)
-**Förderhöhe / Funding:** {funding}
-**Fristende / Deadline:** {deadline}
-**Weitere Informationen / Further information:** (URL oder Hinweis "siehe Webseite")
-**INTERNES VERFAHREN:** (NUR wenn im Text ein Hinweis auf interne Antragsverfahren, rechtsverbindliche Unterschrift etc. vorhanden ist, sonst dieses Feld weglassen)
+Antworte NUR mit den Antworten im Format:
+1. [Antwort]
+2. [Antwort]
+3. [Antwort]
+4. [Antwort]
 
-Wichtig:
-- Halte dich exakt an die Feldbezeichnungen.
-- Wenn eine Information nicht im Text steht, schreibe "Keine Angabe".
-- Verwende für zweisprachige Ausschreibungen beide Sprachen (z.B. "Ziel / Aim:").
+Falls eine Information fehlt, schreibe "Keine Angabe".
 """
 
 
-def _clean_summary_output(raw_summary: str, url: str) -> str:
-    """Bereinigt und validiert die LLM-Ausgabe."""
-    # Entferne eventuelle Markdown-Formatierungsreste
-    lines = raw_summary.strip().split('\n')
-    cleaned_lines = []
+def _format_summary(llm_output: str, title: str, institution: str,
+                    deadline: str, funding: str, url: str) -> str:
+    """Formatiert die Rohausgabe des LLM in das D7-Newsletter-Format."""
+    answers = {"ziel": "Keine Angabe", "zielgruppe": "Keine Angabe",
+               "dauer": "Keine Angabe", "intern": None}
+
+    lines = llm_output.strip().split('\n')
+    current_key = None
     for line in lines:
         line = line.strip()
-        if line.startswith('**') and ':**' in line:
-            cleaned_lines.append(line)
-        elif line and not line.startswith('**'):
-            # Inhalt gehört zur vorherigen Überschrift
-            if cleaned_lines:
-                cleaned_lines[-1] += ' ' + line
-            else:
-                cleaned_lines.append(line)
-        else:
-            cleaned_lines.append(line)
-    
-    cleaned = '\n'.join(cleaned_lines)
-    
-    # Füge Quelle hinzu, falls nicht vorhanden
-    if "Weitere Informationen" not in cleaned and "Further information" not in cleaned:
-        cleaned += f"\n**Weitere Informationen:** {url}"
-    
-    return cleaned
+        if line.startswith("1. "):
+            current_key = "ziel"
+            answers[current_key] = line[3:].strip()
+        elif line.startswith("2. "):
+            current_key = "zielgruppe"
+            answers[current_key] = line[3:].strip()
+        elif line.startswith("3. "):
+            current_key = "dauer"
+            answers[current_key] = line[3:].strip()
+        elif line.startswith("4. "):
+            current_key = "intern"
+            answers[current_key] = line[3:].strip()
+        elif current_key:
+            answers[current_key] += " " + line
+
+    # Titel bereinigen (ggf. kürzen)
+    if len(title) > 120:
+        title = title[:117] + "..."
+
+    formatted = f"**Titel der Ausschreibung:** {title}\n"
+    formatted += f"**Förderinstitution:** {institution or 'Keine Angabe'}\n"
+    formatted += f"**Ziel / Aim:** {answers['ziel']}\n"
+    formatted += f"**Zielgruppe / Target group:** {answers['zielgruppe']}\n"
+    formatted += f"**Dauer / Duration:** {answers['dauer']}\n"
+    formatted += f"**Förderhöhe / Funding:** {funding or 'Keine Angabe'}\n"
+    formatted += f"**Fristende / Deadline:** {deadline or 'Keine Angabe'}\n"
+    formatted += f"**Weitere Informationen / Further information:** {url}\n"
+    if answers["intern"] and "Keine Angabe" not in answers["intern"]:
+        formatted += f"**INTERNES VERFAHREN:** {answers['intern']}\n"
+
+    return formatted
 
 
 def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[Dict[str, Any]]:
@@ -99,37 +111,32 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
             continue
 
         text = scraped["text"]
-        result["title"] = scraped["title"]
+        result["title"] = scraped["title"] or "Keine Angabe"
 
         if not text or len(text) < 200:
             result["error"] = "Zu wenig Textinhalt"
             results.append(result)
             continue
 
-        # Extraktion mit den verbesserten Extractors
-        deadline = extract_deadline(text)
-        funding = extract_funding(text)
-        institution = extract_institution(text)
+        deadline = extract_deadline(text) or "Keine Angabe"
+        funding = extract_funding(text) or "Keine Angabe"
+        institution = extract_institution(text) or "Keine Angabe"
 
         result["deadline"] = deadline
         result["funding"] = funding
         result["institution"] = institution
 
-        # Text kürzen für LLM-Kontext
         max_text_length = 8000
         text_snippet = text[:max_text_length] + ("..." if len(text) > max_text_length else "")
 
-        prompt = SUMMARY_PROMPT_TEMPLATE.format(
-            text=text_snippet,
-            institution=institution or "Unbekannt",
-            deadline=deadline or "Keine Angabe",
-            funding=funding or "Keine Angabe"
-        )
+        prompt = LLM_PROMPT_TEMPLATE.format(text=text_snippet)
 
         try:
-            raw_summary = client.generate(prompt, temperature=0.1, max_tokens=800)
-            cleaned_summary = _clean_summary_output(raw_summary, url)
-            result["summary"] = cleaned_summary
+            llm_output = client.generate(prompt, temperature=0.1, max_tokens=600)
+            formatted_summary = _format_summary(
+                llm_output, result["title"], institution, deadline, funding, url
+            )
+            result["summary"] = formatted_summary
             result["status"] = "success"
         except KIConnectError as e:
             result["error"] = f"LLM-Fehler: {e}"
