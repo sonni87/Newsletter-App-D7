@@ -1,5 +1,5 @@
 """
-Kernfunktion: URLs scrapen, LLM-Zusammenfassung generieren.
+Kernfunktion: URLs scrapen, LLM-Zusammenfassung im Newsletter-Format generieren.
 """
 
 import logging
@@ -11,41 +11,68 @@ from llm_client import LLMClient, KIConnectError
 
 logger = logging.getLogger(__name__)
 
+# Prompt exakt zugeschnitten auf das Format der Newsletter des Dezernats Forschungsmanagement
 SUMMARY_PROMPT_TEMPLATE = """
-Du bist ein Experte für Fördermittel und erstellst präzise Zusammenfassungen von Ausschreibungen.
-
-Analysiere den folgenden Text einer Förderausschreibung und extrahiere die wichtigsten Informationen.
+Du bist Experte für Forschungsförderung und erstellst Einträge für einen Fördernewsletter einer Universität.
+Analysiere den folgenden Text einer Förderausschreibung und extrahiere die Informationen **ausschließlich im folgenden Format**.
 
 TEXT:
 {text}
 
-Erstelle eine strukturierte Zusammenfassung im folgenden Format:
+FORMAT (exakt so antworten, keine zusätzlichen Erklärungen):
 
-**Titel der Ausschreibung:** (falls erkennbar)
+**Titel der Ausschreibung:** (offizieller Titel, falls nicht erkennbar: "Keine Angabe")
 **Förderinstitution:** {institution}
-**Einreichungsfrist:** {deadline}
-**Fördersumme:** {funding}
-**Zielgruppe:** (wer kann sich bewerben?)
-**Fördergegenstand:** (was wird gefördert?)
-**Wichtige Bedingungen:** (besondere Voraussetzungen)
+**Ziel / Aim:** (1–2 Sätze, was wird gefördert? Ggf. auf Deutsch und Englisch, je nach Ausschreibung)
+**Zielgruppe / Target group:** (wer kann sich bewerben?)
+**Dauer / Duration:** (Projektlaufzeit)
+**Förderhöhe / Funding:** {funding}
+**Fristende / Deadline:** {deadline}
+**Weitere Informationen / Further information:** (URL oder Hinweis "siehe Webseite")
+**INTERNES VERFAHREN:** (NUR wenn im Text ein Hinweis auf interne Antragsverfahren, rechtsverbindliche Unterschrift etc. vorhanden ist, sonst dieses Feld weglassen)
 
-Falls bestimmte Informationen nicht im Text enthalten sind, schreibe "Keine Angabe".
-
-Antworte ausschließlich mit der formatierten Zusammenfassung, ohne zusätzliche Erklärungen.
+Wichtig:
+- Halte dich exakt an die Feldbezeichnungen.
+- Wenn eine Information nicht im Text steht, schreibe "Keine Angabe".
+- Verwende für zweisprachige Ausschreibungen beide Sprachen (z.B. "Ziel / Aim:").
 """
+
+
+def _clean_summary_output(raw_summary: str, url: str) -> str:
+    """Bereinigt und validiert die LLM-Ausgabe."""
+    # Entferne eventuelle Markdown-Formatierungsreste
+    lines = raw_summary.strip().split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith('**') and ':**' in line:
+            cleaned_lines.append(line)
+        elif line and not line.startswith('**'):
+            # Inhalt gehört zur vorherigen Überschrift
+            if cleaned_lines:
+                cleaned_lines[-1] += ' ' + line
+            else:
+                cleaned_lines.append(line)
+        else:
+            cleaned_lines.append(line)
+    
+    cleaned = '\n'.join(cleaned_lines)
+    
+    # Füge Quelle hinzu, falls nicht vorhanden
+    if "Weitere Informationen" not in cleaned and "Further information" not in cleaned:
+        cleaned += f"\n**Weitere Informationen:** {url}"
+    
+    return cleaned
 
 
 def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[Dict[str, Any]]:
     if client is None:
         client = LLMClient()
 
-    # API-Key prüfen
     try:
         client._ensure_api_key()
     except KIConnectError as e:
-        raise KIConnectError(
-            "Kein API-Key konfiguriert. Bitte in der Seitenleiste eingeben."
-        ) from e
+        raise KIConnectError("Kein API-Key konfiguriert.") from e
 
     if not client.check_connection():
         raise KIConnectError("Keine Verbindung zur LLM-API möglich.")
@@ -75,10 +102,11 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
         result["title"] = scraped["title"]
 
         if not text or len(text) < 200:
-            result["error"] = "Zu wenig Textinhalt für Zusammenfassung"
+            result["error"] = "Zu wenig Textinhalt"
             results.append(result)
             continue
 
+        # Extraktion mit den verbesserten Extractors
         deadline = extract_deadline(text)
         funding = extract_funding(text)
         institution = extract_institution(text)
@@ -87,6 +115,7 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
         result["funding"] = funding
         result["institution"] = institution
 
+        # Text kürzen für LLM-Kontext
         max_text_length = 8000
         text_snippet = text[:max_text_length] + ("..." if len(text) > max_text_length else "")
 
@@ -98,8 +127,9 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
         )
 
         try:
-            summary = client.generate(prompt, temperature=0.2, max_tokens=1024)
-            result["summary"] = summary.strip()
+            raw_summary = client.generate(prompt, temperature=0.1, max_tokens=800)
+            cleaned_summary = _clean_summary_output(raw_summary, url)
+            result["summary"] = cleaned_summary
             result["status"] = "success"
         except KIConnectError as e:
             result["error"] = f"LLM-Fehler: {e}"
