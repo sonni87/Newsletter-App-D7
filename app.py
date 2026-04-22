@@ -38,7 +38,7 @@ st.markdown("""
         color: white;
     }
     
-    /* Download-Buttons */
+    /* Download-Buttons in Uni-Korall */
     .stDownloadButton > button {
         background-color: #EF7872;
         color: white;
@@ -53,15 +53,10 @@ st.markdown("""
     a {
         color: #009DCC !important;
     }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        color: #005176;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🤖 KI:connect – Flexibler Prompt‑Client mit Übersetzung")
+st.title("🤖 KI:connect – Prompt Client zur Zusammenfassung von Ausschreibungstexten")
 st.markdown("Gib deinen Prompt und den Ausschreibungstext ein. Die Antwort wird im Markdown‑Format ausgegeben und kann exportiert werden.")
 
 # Session State
@@ -84,7 +79,7 @@ with st.sidebar:
         help="Wird automatisch aus Streamlit Secrets oder KICONNECT_API_KEY geladen."
     )
 
-    if st.button("🔌 Verbindung testen & Modelle laden"):
+    if st.button("🔌 Verbinde mich mit KI:connect"):
         try:
             client = LLMClient(api_key=api_key_input if api_key_input else None)
             if client.check_connection():
@@ -110,8 +105,8 @@ with st.sidebar:
         st.markdown(f"**Aktives Modell:** `{st.session_state.selected_model}`")
 
     st.divider()
-    temperature = st.slider("Temperature", 0.0, 1.0, 0.1, 0.05)
-    max_tokens = st.number_input("Max Tokens", 100, 4096, 2048, 100)
+    st.markdown("---")
+    st.caption("Beta-Newsletter – Prompt Client v1.0")
 
 # ========== PROMPT (Ihre Vorgabe) ==========
 default_prompt = """Du bist Redakteur eines Fördernewsletters für Forschende und Verwaltungsmitarbeiter 
@@ -182,7 +177,8 @@ if st.button("🚀 Prompt senden", type="primary"):
                 if st.session_state.selected_model:
                     client.model = st.session_state.selected_model
                 final_prompt = prompt_template.replace("{text}", user_text)
-                response = client.generate(final_prompt, temperature=temperature, max_tokens=max_tokens)
+                # Feste Werte für Temperature und Max Tokens
+                response = client.generate(final_prompt, temperature=0.1, max_tokens=2048)
                 st.session_state.response = response
                 st.session_state.translated_response = ""  # Reset Übersetzung
             except KIConnectError as e:
@@ -244,7 +240,7 @@ Deutscher Text:
 {text_to_translate}
 
 Englische Übersetzung:"""
-            translated = client.generate(translation_prompt, temperature=0.1, max_tokens=max_tokens)
+            translated = client.generate(translation_prompt, temperature=0.1, max_tokens=2048)
             st.session_state.translated_response = translated
         except Exception as e:
             st.error(f"Übersetzungsfehler: {e}")
