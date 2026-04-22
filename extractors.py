@@ -1,6 +1,7 @@
 """
 Extraktion von Metadaten aus Förderausschreibungen.
 Maximale Abdeckung durch umfangreiche Synonyme und Muster.
+Enthält: Aim, TargetGroup, Duration, Funding, Deadline, Institution.
 """
 
 import re
@@ -13,18 +14,15 @@ logger = logging.getLogger(__name__)
 class AimExtractor:
     """Extrahiert das Förderziel / Aim."""
     
-    # Deutsche Synonyme für "Ziel"
     DE_KEYWORDS = [
         "Ziel", "Zweck", "Förderziel", "Förderzweck", "Zuwendungszweck",
         "Gegenstand der Förderung", "Fördergegenstand", "Aufgabe", "Förderaufgabe"
     ]
-    # Englische Synonyme für "Aim"
     EN_KEYWORDS = [
         "Aim", "Purpose", "Objective", "Goal", "Funding objective",
         "The aim is to", "The purpose of this", "Objectives of the"
     ]
     
-    # Verbindungswörter nach dem Schlüsselwort
     CONNECTORS = ["ist", "ist es", "soll", "dient", "ist darauf ausgerichtet", "verfolgt das Ziel",
                   "is to", "is", "are to", "aims to", "seeks to", "will"]
     
@@ -33,11 +31,9 @@ class AimExtractor:
         if not text:
             return None
             
-        # Kombiniere alle Keywords mit optionalen Connectoren
         de_pattern = r"(?:" + "|".join(cls.DE_KEYWORDS) + r")\s+(?:" + "|".join(cls.CONNECTORS) + r"\s+)?([^\n]{50,400})"
         en_pattern = r"(?:" + "|".join(cls.EN_KEYWORDS) + r")\s+(?:" + "|".join(cls.CONNECTORS) + r"\s+)?([^\n]{50,400})"
         
-        # Suche zuerst Deutsch, dann Englisch
         for pattern in [de_pattern, en_pattern]:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
@@ -83,7 +79,6 @@ class DurationExtractor:
         "Maximum duration", "Up to", "For a period of"
     ]
     
-    # Muster für Zeitangaben
     TIME_PATTERNS = [
         r"(\d+(?:\s*[-–]\s*\d+)?\s*(?:Jahre?|Monate?|Wochen?|Tage?))",
         r"(\d+(?:\s*[-–]\s*\d+)?\s*(?:years?|months?|weeks?|days?))",
@@ -96,7 +91,6 @@ class DurationExtractor:
         if not text:
             return None
             
-        # Suche zuerst nach Schlüsselwort + Zeitangabe
         de_pattern = r"(?:" + "|".join(cls.DE_KEYWORDS) + r")\s*:?\s*([^\n]{5,50})"
         en_pattern = r"(?:" + "|".join(cls.EN_KEYWORDS) + r")\s*:?\s*([^\n]{5,50})"
         
@@ -104,14 +98,12 @@ class DurationExtractor:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
                 candidate = m.group(1).strip()
-                # Extrahiere die eigentliche Zeitangabe
                 for tp in cls.TIME_PATTERNS:
                     tm = re.search(tp, candidate, re.IGNORECASE)
                     if tm:
                         return tm.group(1).strip()
                 return candidate
                 
-        # Fallback: Suche nach typischen Zeitangaben im gesamten Text
         for tp in cls.TIME_PATTERNS:
             m = re.search(tp, text, re.IGNORECASE)
             if m:
@@ -125,20 +117,17 @@ class FundingExtractor:
     Maximale Synonym-Abdeckung.
     """
     
-    # Deutsche Keywords für Fördersumme
     DE_FUNDING_KEYS = [
         "Förderhöhe", "Fördersumme", "Zuwendung", "Zuschuss", "Finanzierung",
         "Fördervolumen pro", "Mittel pro", "Förderung in Höhe von", "Zuwendung in Höhe von",
         "bewilligte Mittel", "Förderbetrag", "Zuwendungsbetrag", "Förderung beträgt"
     ]
     
-    # Englische Keywords
     EN_FUNDING_KEYS = [
         "Funding", "Grant amount", "Award amount", "Financial support", "Budget",
         "Funding up to", "Grant of up to", "Maximum funding", "Funding level"
     ]
     
-    # Muster für absolute Beträge
     AMOUNT_PATTERNS = [
         r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
         r"(?:Euro|€|EUR)\s*(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)",
@@ -147,7 +136,6 @@ class FundingExtractor:
         r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Tausend|Tsd\.?)\s*(?:Euro|€|EUR)?",
     ]
     
-    # Prozentangaben
     PERCENT_PATTERNS = [
         r"(?:bis zu\s+)?(\d{1,3})\s*%\s+(?:der|des)\s+(?:zuwendungsfähigen|förderfähigen|projektbezogenen)\s+(?:Ausgaben|Kosten|Gesamtkosten)",
         r"(?:bis zu\s+)?(\d{1,3})\s*%\s+(?:Förderquote|Förderanteil|Zuschuss)",
@@ -156,7 +144,6 @@ class FundingExtractor:
         r"Projektpauschale\s*(?:in Höhe von|von)?\s*(\d{1,2})\s*%",
     ]
     
-    # Sonderfall: "Zuwendung soll ... Euro nicht unterschreiten/überschreiten"
     SPECIAL_PATTERNS = [
         r"Zuwendung\s+soll\s+(?:im\s+Regelfall\s+)?(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)\s+(?:nicht\s+unterschreiten|nicht\s+überschreiten|betragen)",
         r"Die\s+beantragte\s+Zuwendung\s+soll\s+(?:im\s+Regelfall\s+)?(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)\s+(?:nicht\s+unterschreiten|nicht\s+überschreiten)",
@@ -164,7 +151,6 @@ class FundingExtractor:
         r"Funding\s+(?:amount\s+)?(?:is\s+)?(?:up\s+to\s+)?€?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?",
     ]
     
-    # Ignore-Kontext (Gesamtbudgets)
     IGNORE_CONTEXT = [
         "insgesamt stehen", "Gesamtbudget", "Gesamtfördervolumen", "Gesamthöhe",
         "für die Maßnahme stehen", "für diese Bekanntmachung", "Fördervolumen der Maßnahme",
@@ -177,11 +163,8 @@ class FundingExtractor:
             return None
             
         text_lower = text.lower()
-        
-        # Prüfe, ob der Text ein Gesamtbudget signalisiert
         has_ignore = any(ig in text_lower for ig in cls.IGNORE_CONTEXT)
         
-        # 1. Spezielle Muster (höchste Priorität)
         for pat in cls.SPECIAL_PATTERNS:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
@@ -192,19 +175,14 @@ class FundingExtractor:
                     return f"{amount} Mrd. €"
                 return f"{amount} €"
         
-        # 2. Prozentangaben (sehr häufig in D7)
         for pat in cls.PERCENT_PATTERNS:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 return f"{m.group(1)}%"
         
-        # 3. Absolute Beträge im Kontext von Förder-Keywords
-        #    (nur wenn kein Gesamtbudget-Signal)
         if not has_ignore:
-            # Kombiniere Keywords mit Betragsmustern
             for fk in cls.DE_FUNDING_KEYS + cls.EN_FUNDING_KEYS:
                 for ap in cls.AMOUNT_PATTERNS:
-                    # Suche nach Keyword gefolgt von Betrag innerhalb von 80 Zeichen
                     pat = rf"{fk}[^\n]{{0,80}}?{ap}"
                     m = re.search(pat, text, re.IGNORECASE)
                     if m:
@@ -215,7 +193,6 @@ class FundingExtractor:
                             return f"{amount} Mrd. €"
                         return f"{amount} €"
         
-        # 4. Fallback: Suche nach "Funding" oder "Förderhöhe" und nimm den umgebenden Satz
         m = re.search(r"(?:Funding|Förderhöhe|Fördersumme)\s*:?\s*([^\n]{10,120})", text_lower, re.I)
         if m and not has_ignore:
             return m.group(1).strip()
@@ -224,9 +201,8 @@ class FundingExtractor:
     
     @staticmethod
     def _clean_number(s: str) -> str:
-        """Entfernt Tausendertrennzeichen und normalisiert Dezimaltrenner."""
-        s = re.sub(r"\s+", "", s)           # Leerzeichen entfernen
-        s = s.replace(".", "").replace(",", ".")  # Punkte (Tausender) weg, Komma zu Punkt
+        s = re.sub(r"\s+", "", s)
+        s = s.replace(".", "").replace(",", ".")
         return s
 
 
@@ -234,22 +210,18 @@ class InstitutionExtractor:
     """Extrahiert die fördernde Institution."""
     
     INDICATORS = [
-        # Deutsche Vollnamen
         r"Bundesministerium\s+für\s+Bildung\s+und\s+Forschung",
         r"Bundesministerium\s+für\s+Forschung,\s+Technologie\s+und\s+Raumfahrt",
         r"Bundesministerium\s+für\s+Wirtschaft\s+und\s+Energie",
         r"Bundesministerium\s+für\s+Wirtschaft\s+und\s+Klimaschutz",
         r"Bundesministerium\s+für\s+Umwelt,\s+Naturschutz,\s+nukleare\s+Sicherheit\s+und\s+Verbraucherschutz",
         r"Bundesministerium\s+für\s+Familie,\s+Senioren,\s+Frauen\s+und\s+Jugend",
-        # Englische Vollnamen
         r"Federal\s+Ministry\s+of\s+Education\s+and\s+Research",
         r"Federal\s+Ministry\s+of\s+Research,\s+Technology\s+and\s+Space",
         r"Federal\s+Ministry\s+for\s+Economic\s+Affairs\s+and\s+Energy",
         r"Federal\s+Ministry\s+for\s+Economic\s+Affairs\s+and\s+Climate\s+Action",
         r"Federal\s+Ministry\s+for\s+the\s+Environment,\s+Nature\s+Conservation,\s+Nuclear\s+Safety\s+and\s+Consumer\s+Protection",
-        # Abkürzungen
         r"BMBF|BMFTR|BMWE|BMWK|BMUV|BMUKN|BMBFSFJ",
-        # Forschungsförderer
         r"Deutsche\s+Forschungsgemeinschaft|DFG",
         r"European\s+Research\s+Council|ERC",
         r"European\s+Commission|Europäische\s+Kommission",
@@ -270,7 +242,7 @@ class InstitutionExtractor:
     def extract(cls, text: str) -> Optional[str]:
         if not text:
             return None
-        head = text[:2000]  # Institution steht meist am Anfang
+        head = text[:2000]
         for pat in cls.INDICATORS:
             m = re.search(pat, head, re.IGNORECASE)
             if m:
@@ -278,7 +250,83 @@ class InstitutionExtractor:
         return None
 
 
-# Wrapper-Funktionen für einfachen Import
+class DeadlineExtractor:
+    """Extrahiert die Einreichungsfrist."""
+    
+    MONTHS_DE = {"januar": 1, "februar": 2, "märz": 3, "april": 4, "mai": 5, "juni": 6,
+                 "juli": 7, "august": 8, "september": 9, "oktober": 10, "november": 11, "dezember": 12}
+    MONTHS_EN = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                 "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12}
+
+    PATTERNS = [
+        (r"(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})", "DMY"),
+        (r"(\d{1,2})\.\s*([a-zA-Zäöüß]+)\s*(\d{4})", "DMy"),
+        (r"(\d{4})-(\d{1,2})-(\d{1,2})", "YMD"),
+        (r"(\d{1,2})/(\d{1,2})/(\d{4})", "MDY"),
+        (r"([a-zA-Z]+)\s+(\d{1,2}),?\s*(\d{4})", "MDY_en"),
+    ]
+
+    CONTEXT = ["frist", "einreich", "deadline", "bis zum", "stichtag", "submission", "due date"]
+
+    @classmethod
+    def extract(cls, text: str) -> Optional[str]:
+        if not text:
+            return None
+        # Header-Datumsbereich
+        header = re.search(r"(\d{2}\.\d{2}\.\d{4})\s*[-–]\s*(\d{2}\.\d{2}\.\d{4})", text)
+        if header:
+            return cls._parse_date_str(header.group(2))
+
+        text_lower = text.lower()
+        dates = []
+        for pat, style in cls.PATTERNS:
+            for m in re.finditer(pat, text_lower):
+                date = cls._parse_match(m, style)
+                if date:
+                    ctx = text_lower[max(0, m.start()-150):m.end()+150]
+                    if any(w in ctx for w in cls.CONTEXT):
+                        dates.append((date, m.start()))
+        if dates:
+            dates.sort(key=lambda x: x[1])
+            return dates[0][0]
+        return None
+
+    @classmethod
+    def _parse_match(cls, m, style):
+        g = m.groups()
+        try:
+            if style == "DMY":
+                d, mo, y = int(g[0]), int(g[1]), int(g[2])
+                return f"{y:04d}-{mo:02d}-{d:02d}"
+            if style == "DMy":
+                d, mon, y = int(g[0]), g[1].lower(), int(g[2])
+                if mon in cls.MONTHS_DE:
+                    return f"{y:04d}-{cls.MONTHS_DE[mon]:02d}-{d:02d}"
+                if mon in cls.MONTHS_EN:
+                    return f"{y:04d}-{cls.MONTHS_EN[mon]:02d}-{d:02d}"
+            if style == "YMD":
+                y, mo, d = int(g[0]), int(g[1]), int(g[2])
+                return f"{y:04d}-{mo:02d}-{d:02d}"
+            if style == "MDY":
+                mo, d, y = int(g[0]), int(g[1]), int(g[2])
+                return f"{y:04d}-{mo:02d}-{d:02d}"
+            if style == "MDY_en":
+                mon, d, y = g[0].lower(), int(g[1]), int(g[2])
+                if mon in cls.MONTHS_EN:
+                    return f"{y:04d}-{cls.MONTHS_EN[mon]:02d}-{d:02d}"
+        except:
+            pass
+        return None
+
+    @classmethod
+    def _parse_date_str(cls, s):
+        m = re.match(r"(\d{2})\.(\d{2})\.(\d{4})", s)
+        if m:
+            return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+        return None
+
+
+# Wrapper-Funktionen
 def extract_aim(text: str) -> Optional[str]:
     return AimExtractor.extract(text)
 
