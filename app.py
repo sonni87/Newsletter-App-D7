@@ -68,6 +68,9 @@ if "available_models" not in st.session_state:
     st.session_state.available_models = []
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = None
+# Neuer State für das Textfeld (damit es über Button leerbar ist)
+if "user_text" not in st.session_state:
+    st.session_state.user_text = ""
 
 # Sidebar
 with st.sidebar:
@@ -162,11 +165,18 @@ with col1:
     )
 with col2:
     st.subheader("📄 Ausschreibungstext")
+    # Textfeld mit session_state verknüpft, damit Button es leeren kann
     user_text = st.text_area(
         "Volltext der Ausschreibung einfügen",
+        value=st.session_state.user_text,
         height=400,
-        placeholder="Den kompletten Ausschreibungstext hier einfügen..."
+        placeholder="Den kompletten Ausschreibungstext hier einfügen...",
+        key="text_input"
     )
+    # Button zum Leeren des Textfelds
+    if st.button("🧹 Textfeld leeren"):
+        st.session_state.user_text = ""
+        st.rerun()
 
 # Analyse-Button
 if st.button("🚀 Prompt senden", type="primary"):
