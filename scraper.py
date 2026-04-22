@@ -1,6 +1,5 @@
 """
-Web-Scraper mit Retry-Logik und HTML-Bereinigung.
-Optimiert für BMFTR/BMBF-Ausschreibungen.
+Web-Scraper mit optimierter Titel-Extraktion für BMFTR/BMBF-Ausschreibungen.
 """
 
 import logging
@@ -24,8 +23,6 @@ REMOVE_SELECTORS = [
     "script", "style", "nav", "header", "footer", "aside",
     ".navigation", ".menu", ".sidebar", '[role="navigation"]'
 ]
-
-GENERIC_TITLES = ["Navigation und Service", "Homepage", "Startseite", "None", ""]
 
 
 def create_session_with_retries(retries=3, backoff=0.5):
@@ -52,35 +49,44 @@ def fetch_html(url: str, timeout: int = 30) -> Optional[str]:
         return None
 
 
-def extract_title(html: str) -> Optional[str]:
+def extract_title(html: str) -> str:
+    """Extrahiert den Ausschreibungstitel – optimiert für BMFTR/BMBF."""
     soup = BeautifulSoup(html, "html.parser")
 
-    # 1. h1 mit spezifischer Klasse
-    for h1 in soup.find_all("h1", class_=re.compile(r"title|headline|bekanntmachung", re.I)):
+    # 1. h1 mit Klasse "title" oder "headline"
+    for h1 in soup.find_all("h1", class_=re.compile(r"title|headline", re.I)):
         text = h1.get_text(strip=True)
-        if text and text not in GENERIC_TITLES and len(text) > 20:
+        if len(text) > 20:
             return text
 
-    # 2. beliebiges h1 mit Schlüsselwörtern
+    # 2. beliebiges h1 mit relevantem Inhalt
     for h1 in soup.find_all("h1"):
         text = h1.get_text(strip=True)
-        if text and text not in GENERIC_TITLES:
-            if any(w in text.lower() for w in ["richtlinie", "bekanntmachung", "förder"]):
-                return text
+        if len(text) > 30 and any(w in text.lower() for w in ["richtlinie", "bekanntmachung", "förder"]):
+            return text
 
     # 3. h2 mit Schlüsselwörtern
     for h2 in soup.find_all("h2"):
         text = h2.get_text(strip=True)
-        if len(text) > 30 and any(w in text.lower() for w in ["richtlinie", "bekanntmachung"]):
+        if len(text) > 30 and any(w in text.lower() for w in ["richtlinie", "bekanntmachung", "call"]):
             return text
 
-    # 4. Textanalyse: erste Zeile mit "Bekanntmachung"
+    # 4. Aus Fließtext: erste Zeile mit "Bekanntmachung"
     text = soup.get_text(separator="\n", strip=True)
-    for line in text.split("\n")[:20]:
-        if "Bekanntmachung" in line and len(line) > 30:
-            return line.strip()
+    for line in text.split("\n")[:30]:
+        if re.search(r"Bekanntmachung|Richtlinie|Förderrichtlinie|Call for Proposals", line, re.I):
+            if len(line) > 30:
+                return line.strip()
 
-    return None
+    # 5. Fallback: HTML-Title (bereinigt)
+    if soup.title and soup.title.string:
+        title = soup.title.string.strip()
+        title = re.sub(r"^Homepage\s*[-–]\s*", "", title)
+        title = re.sub(r"^Navigation und Service\s*[-–]\s*", "", title)
+        if len(title) > 20:
+            return title
+
+    return "Keine Angabe"
 
 
 def clean_html(html: str) -> str:
@@ -105,7 +111,7 @@ def scrape_url(url: str) -> Dict[str, Any]:
         return result
 
     try:
-        result["title"] = extract_title(html) or "Keine Angabe"
+        result["title"] = extract_title(html)
         result["text"] = clean_html(html)
         if len(result["text"]) < 200:
             result["error"] = "Zu wenig Textinhalt"
