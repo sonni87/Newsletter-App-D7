@@ -1,11 +1,11 @@
 """
 Extraktion von Metadaten aus Webseiten-Texten.
-Unterstützt eine Vielzahl von Ausschreibungsformaten (BMBF, DFG, EU, Stiftungen etc.).
+Unterstützt BMBF, BMFTR, BMWE, DFG, EU etc.
 """
 
 import re
 import logging
-from typing import Optional, List
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,24 +22,19 @@ class DeadlineExtractor:
         "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
     }
 
-    # Datumsmuster (international)
     PATTERNS = [
-        (r"(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})", "DMY"),           # 31.12.2025
-        (r"(\d{1,2})\.\s*([a-zA-Zäöüß]+)\s*(\d{4})", "DMy"),       # 31. Dezember 2025
-        (r"(\d{4})-(\d{1,2})-(\d{1,2})", "YMD"),                   # 2025-12-31
-        (r"(\d{1,2})/(\d{1,2})/(\d{4})", "MDY"),                   # 12/31/2025
-        (r"([a-zA-Z]+)\s+(\d{1,2}),?\s*(\d{4})", "MDY_en"),        # December 31, 2025
+        (r"(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})", "DMY"),
+        (r"(\d{1,2})\.\s*([a-zA-Zäöüß]+)\s*(\d{4})", "DMy"),
+        (r"(\d{4})-(\d{1,2})-(\d{1,2})", "YMD"),
+        (r"(\d{1,2})/(\d{1,2})/(\d{4})", "MDY"),
+        (r"([a-zA-Z]+)\s+(\d{1,2}),?\s*(\d{4})", "MDY_en"),
     ]
 
-    # Begriffe, die eine Frist ankündigen (deutsch/englisch)
     CONTEXT_WORDS = [
-        # Deutsch
         "frist", "einreich", "bewerbungsschluss", "abgab", "einzureichen",
         "bis zum", "bis spätestens", "deadline", "stichtag", "ende der",
         "teilnahmeschluss", "antragsfrist", "einreichungsfrist", "schlusstermin",
-        # Englisch
-        "deadline", "submission date", "closing date", "due date", "cut-off",
-        "applications must be submitted by", "proposals due"
+        "deadline", "submission date", "closing date", "due date", "cut-off"
     ]
 
     @classmethod
@@ -50,20 +45,17 @@ class DeadlineExtractor:
         text_lower = text.lower()
         dates_found = []
 
-        # 1. Explizite Datumsbereiche im Header (wie "26.04.2021 - 25.05.2021")
+        # Header-Datumsbereich
         header_match = re.search(r"(\d{2}\.\d{2}\.\d{4})\s*[-–]\s*(\d{2}\.\d{2}\.\d{4})", text)
         if header_match:
             date_str = cls._parse_date_string(header_match.group(2))
             if date_str:
-                logger.info(f"Frist aus Header gefunden: {date_str}")
                 return date_str
 
-        # 2. Alle Datumsfunde sammeln
         for pattern, style in cls.PATTERNS:
             for match in re.finditer(pattern, text_lower):
                 date_str = cls._parse_match(match, style)
                 if date_str:
-                    # Kontext prüfen (150 Zeichen vor/nach dem Match)
                     start = max(0, match.start() - 200)
                     end = min(len(text_lower), match.end() + 200)
                     context = text_lower[start:end]
@@ -71,7 +63,6 @@ class DeadlineExtractor:
                         dates_found.append((date_str, match.start()))
 
         if not dates_found:
-            # Fallback: das späteste Datum im gesamten Text, falls kein Kontextwort gefunden wurde
             all_dates = []
             for pattern, style in cls.PATTERNS:
                 for match in re.finditer(pattern, text_lower):
@@ -79,8 +70,8 @@ class DeadlineExtractor:
                     if date_str:
                         all_dates.append((date_str, match.start()))
             if all_dates:
-                all_dates.sort(key=lambda x: x[0])  # nach Datum sortieren
-                return all_dates[-1][0]  # das späteste Datum nehmen
+                all_dates.sort(key=lambda x: x[0])
+                return all_dates[-1][0]
             return None
 
         dates_found.sort(key=lambda x: x[1])
@@ -88,7 +79,6 @@ class DeadlineExtractor:
 
     @classmethod
     def _parse_match(cls, match: re.Match, style: str) -> Optional[str]:
-        """Parst ein Regex-Match je nach Stil."""
         groups = match.groups()
         try:
             if style == "DMY":
@@ -126,7 +116,6 @@ class DeadlineExtractor:
 
     @classmethod
     def _parse_date_string(cls, date_str: str) -> Optional[str]:
-        """Parst DD.MM.YYYY."""
         match = re.match(r"(\d{2})\.(\d{2})\.(\d{4})", date_str)
         if match:
             day, month, year = match.groups()
@@ -135,25 +124,13 @@ class DeadlineExtractor:
 
 
 class FundingExtractor:
-    """Extrahiert Förderbeträge mit erweiterten Synonymen und Einheiten."""
+    """Extrahiert Fördersumme mit Kontext, um Programm-Budgets zu vermeiden."""
 
-    # Muster für Beträge mit verschiedenen Schreibweisen
-    AMOUNT_PATTERNS = [
-        # Deutsch
-        r"(?:Zuwendung|Förder(?:summe|höhe|betrag)|Zuschuss|Finanzierung)\s+(?:soll|beträgt|in\s+Höhe\s+von|von|bis\s+zu)\s+[^\d]*(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
-        r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Mio\.?|Million(?:en)?)\s*(?:Euro|€|EUR)?",
-        r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Mrd\.?|Milliarde(?:n)?)\s*(?:Euro|€|EUR)?",
-        r"(?:beantragte\s+Zuwendung|Zuwendung)\s+(?:soll\s+(?:im\s+Regelfall\s+)?)?(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
-        # Englisch
-        r"(?:funding|grant|budget)\s+(?:amount|of|up\s+to)\s+[^\d]*(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR|USD)",
-        r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:million|m)\s*(?:Euro|€|EUR|USD)",
-        # Allgemein: Zahl gefolgt von Euro-Symbol im Kontext
-        r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)(?:\s+(?:nicht\s+unterschreiten|werden\s+gewährt|als\s+Zuschuss|pro\s+Projekt))"
-    ]
-
-    CONTEXT_WORDS = [
-        "zuwendung", "förder", "zuschuss", "finanzierung", "mittel", "budget",
-        "funding", "grant", "amount", "award"
+    PATTERNS = [
+        r"(?:Zuwendung|Förderung|Zuschuss)\s+(?:soll|beträgt|in\s+Höhe\s+von|von|bis\s+zu)\s+[^\d]*(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
+        r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Mio\.?|Million(?:en)?)\s*(?:Euro|€|EUR)",
+        r"(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Mrd\.?|Milliarde(?:n)?)\s*(?:Euro|€|EUR)",
+        r"Förderhöhe\s*(?:beträgt\s*)?(?:bis\s+zu\s+)?(\d{1,3}(?:[.,\s]?\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
     ]
 
     @classmethod
@@ -162,60 +139,42 @@ class FundingExtractor:
             return None
 
         text_lower = text.lower()
-        candidates = []
-
-        for pattern in cls.AMOUNT_PATTERNS:
-            for match in re.finditer(pattern, text_lower, re.IGNORECASE):
-                raw_amount = match.group(1)
-                full_match = match.group(0)
-
-                # Kontext prüfen
-                start = max(0, match.start() - 200)
-                end = min(len(text_lower), match.end() + 50)
-                context = text_lower[start:end]
-                if any(word in context for word in cls.CONTEXT_WORDS):
-                    clean = cls._normalize_amount(raw_amount, full_match)
-                    candidates.append((clean, match.start()))
-
-        if candidates:
-            candidates.sort(key=lambda x: x[1])
-            return candidates[0][0]
-
+        for pattern in cls.PATTERNS:
+            match = re.search(pattern, text_lower, re.IGNORECASE)
+            if match:
+                amount = match.group(1)
+                full = match.group(0)
+                # Kontext: wenn "Mrd." oder "Milliarden" -> Programm-Budget, ggf. ignorieren?
+                if re.search(r"Mrd|Milliarde|billion", full, re.IGNORECASE):
+                    # Nur zurückgeben, wenn explizit "pro Projekt" oder ähnlich
+                    if "pro projekt" not in text_lower[match.start()-100:match.end()+100]:
+                        # Wahrscheinlich Gesamtbudget, nicht Projektsumme
+                        continue
+                clean = cls._normalize_amount(amount, full)
+                return clean
         return None
 
     @classmethod
     def _normalize_amount(cls, raw: str, full: str) -> str:
-        """Bereinigt den Betrag und fügt Einheit hinzu."""
-        # Entferne alle Leerzeichen und Punkte (Tausendertrenner)
-        amount = raw.replace(" ", "").replace(".", "")
-        # Komma durch Punkt ersetzen (Dezimaltrenner)
-        amount = amount.replace(",", ".")
-
-        # Einheit erkennen
+        amount = raw.replace(" ", "").replace(".", "").replace(",", ".")
         if re.search(r"Mio|Million|million", full, re.IGNORECASE):
             return f"{amount} Mio. €"
         elif re.search(r"Mrd|Milliarde|billion", full, re.IGNORECASE):
             return f"{amount} Mrd. €"
-        else:
-            return f"{amount} €"
+        return f"{amount} €"
 
 
 class InstitutionExtractor:
-    """Extrahiert die fördernde Institution mit erweiterten Indikatoren."""
+    """Erkennt fördernde Institution (BMBF, BMFTR, DFG, EU...)"""
 
     INDICATORS = [
-        # Deutsche Institutionen
-        "ministerium", "stiftung", "fonds", "agentur", "institut", "zentrum",
-        "förder", "projektträger", "bundesamt", "landesamt", "gmbh", "e.v.",
-        "bmbf", "bmwk", "bmuv", "bmftr", "bmwe", "bmbfsfj", "bmukn",
-        "dfg", "deutsche forschungsgemeinschaft",
-        "alexander von humboldt", "volkswagen", "fritz thyssen", "gerda henkel",
-        "joachim herz", "klaus tschira", "boehringer ingelheim",
-        "daad", "max weber", "wübben",
-        # International
-        "european commission", "erc", "horizon", "marie skłodowska",
-        "national science foundation", "nsf", "nih", "wellcome",
-        "jsps", "eth zürich", "ecb", "unesco", "who"
+        "Bundesministerium für Bildung und Forschung",
+        "Bundesministerium für Forschung, Technologie und Raumfahrt",
+        "Bundesministerium für Wirtschaft und Energie",
+        "Bundesministerium für Umwelt",
+        "BMBF", "BMFTR", "BMWE", "BMUKN", "BMWK",
+        "Deutsche Forschungsgemeinschaft", "DFG",
+        "Europäische Kommission", "ERC", "Horizon",
     ]
 
     @classmethod
@@ -223,31 +182,18 @@ class InstitutionExtractor:
         if not text:
             return None
 
-        # Zuerst nach expliziter Zeile mit "Bundesministerium" suchen
-        lines = text.split("\n")
-        for line in lines[:50]:  # Nur die ersten 50 Zeilen
-            if "Bundesministerium" in line:
-                clean = re.sub(r"\s+", " ", line).strip()
-                if len(clean) < 150:
-                    return clean
-            if any(ind in line.lower() for ind in cls.INDICATORS):
-                clean = re.sub(r"\s+", " ", line).strip()
-                if 5 < len(clean) < 150:
-                    return clean
-
-        # Fallback: Suche im ersten Drittel des Textes
-        first_part = text[: len(text) // 3]
-        for indicator in cls.INDICATORS:
-            match = re.search(rf"([^\n]*{indicator}[^\n]*)", first_part, re.IGNORECASE)
-            if match:
-                clean = re.sub(r"\s+", " ", match.group(1)).strip()
-                if 5 < len(clean) < 150:
-                    return clean
-
+        # Suche in den ersten 1000 Zeichen
+        head = text[:1000]
+        for ind in cls.INDICATORS:
+            if ind.lower() in head.lower():
+                # Gib den gefundenen Namen zurück
+                match = re.search(rf"({ind}[^\n]*)", head, re.IGNORECASE)
+                if match:
+                    return match.group(1).strip()
         return None
 
 
-# Wrapper-Funktionen
+# Wrapper
 def extract_deadline(text: str) -> Optional[str]:
     return DeadlineExtractor.extract(text)
 
