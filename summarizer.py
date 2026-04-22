@@ -11,69 +11,54 @@ from llm_client import LLMClient, KIConnectError
 
 logger = logging.getLogger(__name__)
 
-# Allgemeingültiger Prompt für beliebige Ausschreibungen
-LLM_PROMPT_TEMPLATE = """
-Du bist Experte für Forschungsförderung. Analysiere den folgenden Text einer Förderausschreibung und extrahiere die gefragten Informationen.
+LLM_PROMPT = """
+Analysiere den Text einer Förderausschreibung und extrahiere die folgenden Informationen knapp und präzise.
 
 TEXT:
 {text}
 
-FRAGEN (antworte kurz und prägnant, max. 2 Sätze pro Punkt):
-1. Ziel der Förderung: Was ist das Hauptziel? Was wird gefördert?
-2. Zielgruppe: Wer kann sich bewerben? Welche Einrichtungen/Personen?
-3. Dauer: Wie lange können Projekte gefördert werden? (z.B. "bis zu 3 Jahre", "12 Monate")
-4. Internes Verfahren: Gibt es einen Hinweis auf interne Antragswege, rechtsverbindliche Unterschrift oder eine Frist für die interne Abwicklung? Wenn ja, zitiere den Hinweis wörtlich.
+1. Ziel der Förderung: (max. 2 Sätze)
+2. Zielgruppe: (wer ist antragsberechtigt?)
+3. Dauer der Förderung: (z.B. "bis zu 3 Jahre")
+4. Internes Verfahren: (Hinweise zu rechtsverbindlicher Unterschrift oder interner Frist, sonst "Keine Angabe")
 
-Antworte NUR mit den Antworten im Format:
-1. [Antwort]
-2. [Antwort]
-3. [Antwort]
-4. [Antwort]
-
-Falls eine Information fehlt, schreibe "Keine Angabe".
+Antworte nur mit:
+1: <Antwort>
+2: <Antwort>
+3: <Antwort>
+4: <Antwort>
 """
 
 
-def _format_summary(llm_output: str, title: str, institution: str,
-                    deadline: str, funding: str, url: str) -> str:
-    """Formatiert die Rohausgabe des LLM in das D7-Newsletter-Format."""
-    answers = {"ziel": "Keine Angabe", "zielgruppe": "Keine Angabe",
-               "dauer": "Keine Angabe", "intern": None}
-
-    lines = llm_output.strip().split('\n')
-    current_key = None
+def _parse_llm_output(output: str) -> Dict[str, str]:
+    result = {"ziel": "Keine Angabe", "zielgruppe": "Keine Angabe",
+              "dauer": "Keine Angabe", "intern": "Keine Angabe"}
+    lines = output.strip().split("\n")
     for line in lines:
         line = line.strip()
-        if line.startswith("1. "):
-            current_key = "ziel"
-            answers[current_key] = line[3:].strip()
-        elif line.startswith("2. "):
-            current_key = "zielgruppe"
-            answers[current_key] = line[3:].strip()
-        elif line.startswith("3. "):
-            current_key = "dauer"
-            answers[current_key] = line[3:].strip()
-        elif line.startswith("4. "):
-            current_key = "intern"
-            answers[current_key] = line[3:].strip()
-        elif current_key:
-            answers[current_key] += " " + line
+        if line.startswith("1:"):
+            result["ziel"] = line[2:].strip()
+        elif line.startswith("2:"):
+            result["zielgruppe"] = line[2:].strip()
+        elif line.startswith("3:"):
+            result["dauer"] = line[2:].strip()
+        elif line.startswith("4:"):
+            result["intern"] = line[2:].strip()
+    return result
 
-    # Titel bereinigen (ggf. kürzen)
-    if len(title) > 120:
-        title = title[:117] + "..."
 
+def _format_summary(title: str, institution: str, deadline: str,
+                    funding: str, url: str, llm_data: Dict[str, str]) -> str:
     formatted = f"**Titel der Ausschreibung:** {title}\n"
     formatted += f"**Förderinstitution:** {institution or 'Keine Angabe'}\n"
-    formatted += f"**Ziel / Aim:** {answers['ziel']}\n"
-    formatted += f"**Zielgruppe / Target group:** {answers['zielgruppe']}\n"
-    formatted += f"**Dauer / Duration:** {answers['dauer']}\n"
+    formatted += f"**Ziel / Aim:** {llm_data['ziel']}\n"
+    formatted += f"**Zielgruppe / Target group:** {llm_data['zielgruppe']}\n"
+    formatted += f"**Dauer / Duration:** {llm_data['dauer']}\n"
     formatted += f"**Förderhöhe / Funding:** {funding or 'Keine Angabe'}\n"
     formatted += f"**Fristende / Deadline:** {deadline or 'Keine Angabe'}\n"
     formatted += f"**Weitere Informationen / Further information:** {url}\n"
-    if answers["intern"] and "Keine Angabe" not in answers["intern"]:
-        formatted += f"**INTERNES VERFAHREN:** {answers['intern']}\n"
-
+    if llm_data["intern"] != "Keine Angabe":
+        formatted += f"**INTERNES VERFAHREN:** {llm_data['intern']}\n"
     return formatted
 
 
@@ -111,7 +96,7 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
             continue
 
         text = scraped["text"]
-        result["title"] = scraped["title"] or "Keine Angabe"
+        title = scraped["title"] or "Keine Angabe"
 
         if not text or len(text) < 200:
             result["error"] = "Zu wenig Textinhalt"
@@ -126,24 +111,15 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
         result["funding"] = funding
         result["institution"] = institution
 
-        max_text_length = 8000
-        text_snippet = text[:max_text_length] + ("..." if len(text) > max_text_length else "")
-
-        prompt = LLM_PROMPT_TEMPLATE.format(text=text_snippet)
-
+        prompt = LLM_PROMPT.format(text=text[:8000])
         try:
-            llm_output = client.generate(prompt, temperature=0.1, max_tokens=600)
-            formatted_summary = _format_summary(
-                llm_output, result["title"], institution, deadline, funding, url
-            )
-            result["summary"] = formatted_summary
+            llm_output = client.generate(prompt, temperature=0.1, max_tokens=500)
+            llm_data = _parse_llm_output(llm_output)
+            result["summary"] = _format_summary(title, institution, deadline, funding, url, llm_data)
             result["status"] = "success"
-        except KIConnectError as e:
-            result["error"] = f"LLM-Fehler: {e}"
-            logger.error(f"LLM-Fehler für {url}: {e}")
         except Exception as e:
-            result["error"] = f"Unerwarteter Fehler: {e}"
-            logger.exception(f"Unerwarteter Fehler bei {url}")
+            result["error"] = f"LLM-Fehler: {e}"
+            logger.error(f"LLM-Fehler bei {url}: {e}")
 
         results.append(result)
 
