@@ -1,12 +1,11 @@
 """
 Streamlit Web-App für Beta-Newsletter Förderausschreibungen.
-Mit Export-Funktion für die Analyse.
+Analyse direkt aus eingefügtem Volltext.
 """
 
 import os
 import logging
 import sys
-import io
 
 import streamlit as st
 
@@ -16,7 +15,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-from summarizer import summarize_urls
+from summarizer import summarize_text
 from llm_client import LLMClient, KIConnectError
 
 st.set_page_config(
@@ -26,17 +25,15 @@ st.set_page_config(
 )
 
 st.title("📰 Beta-Newsletter – Förderausschreibungen")
-st.markdown("Gib URLs zu Förderausschreibungen ein und erhalte KI-generierte Zusammenfassungen.")
+st.markdown("Füge den **Volltext** einer Förderausschreibung ein – das Tool extrahiert automatisch die D7‑Newsletter‑Felder.")
 
-# Session State für Ergebnisse und Modelle
+# Session State für Modelle und Ergebnisse
 if 'available_models' not in st.session_state:
     st.session_state.available_models = []
 if 'selected_model' not in st.session_state:
     st.session_state.selected_model = None
-if 'results' not in st.session_state:
-    st.session_state.results = None
-if 'processed_urls' not in st.session_state:
-    st.session_state.processed_urls = []
+if 'last_result' not in st.session_state:
+    st.session_state.last_result = None
 
 with st.sidebar:
     st.header("⚙️ Konfiguration")
@@ -79,99 +76,60 @@ with st.sidebar:
 
     st.divider()
     st.markdown("---")
-    st.caption("Beta-Newsletter v0.4.0")
+    st.caption("Beta-Newsletter v0.5.0 – Textanalyse")
 
-# Hauptbereich
-url_input = st.text_area(
-    "URLs (eine pro Zeile)",
-    height=150,
-    placeholder="https://www.foerderdatenbank.de/...\nhttps://..."
+# Hauptbereich: Texteingabe
+text_input = st.text_area(
+    "Volltext der Ausschreibung einfügen:",
+    height=300,
+    placeholder="Den kompletten Text der Bekanntmachung hier einfügen..."
 )
 
 col1, col2, col3 = st.columns([1, 1, 3])
 with col1:
-    start_button = st.button("🚀 Zusammenfassungen erstellen", type="primary")
+    analyze_button = st.button("🔍 Text analysieren", type="primary")
 with col2:
     clear_button = st.button("🧹 Eingabe löschen")
 
 if clear_button:
-    st.session_state.results = None
-    st.session_state.processed_urls = []
+    st.session_state.last_result = None
     st.rerun()
 
-if start_button and url_input:
-    urls = [url.strip() for url in url_input.splitlines() if url.strip()]
+if analyze_button and text_input:
+    with st.spinner("Analysiere Text... "):
+        try:
+            client = LLMClient(api_key=api_key_input if api_key_input else None)
+            if st.session_state.selected_model:
+                client.model = st.session_state.selected_model
 
-    if not urls:
-        st.warning("Bitte mindestens eine URL eingeben.")
-    else:
-        with st.spinner("Verarbeite URLs... Dies kann einige Minuten dauern."):
-            try:
-                client = LLMClient(api_key=api_key_input if api_key_input else None)
-                if st.session_state.selected_model:
-                    client.model = st.session_state.selected_model
+            result = summarize_text(text_input.strip(), client=client)
+            st.session_state.last_result = result
 
-                results = summarize_urls(urls, client=client)
-                st.session_state.results = results
-                st.session_state.processed_urls = urls
+        except KIConnectError as e:
+            st.error(f"API-Fehler: {e}")
+        except Exception as e:
+            st.exception(e)
+            st.error("Ein unerwarteter Fehler ist aufgetreten.")
 
-            except KIConnectError as e:
-                st.error(f"API-Fehler: {e}")
-            except Exception as e:
-                st.exception(e)
-                st.error("Ein unerwarteter Fehler ist aufgetreten.")
-
-# Ergebnisse anzeigen und Export-Button
-if st.session_state.results:
+# Ergebnis anzeigen
+if st.session_state.last_result:
     st.divider()
-    st.subheader("📋 Ergebnisse")
-
-    # Export-Button in der oberen rechten Ecke
-    col_exp1, col_exp2 = st.columns([3, 1])
-    with col_exp2:
-        # Erstelle Markdown-Inhalt für Export
-        md_content = "# Beta-Newsletter – Förderausschreibungen\n\n"
-        md_content += f"Verarbeitete URLs: {len(st.session_state.processed_urls)}\n"
-        md_content += f"Modell: {st.session_state.selected_model or 'Standard'}\n\n"
-        md_content += "---\n\n"
-
-        for i, res in enumerate(st.session_state.results):
-            md_content += f"## {i+1}. {res.get('title', res['url'])}\n\n"
-            if res["status"] == "success":
-                md_content += res["summary"]
-                md_content += f"\n\n**Quelle:** {res['url']}\n"
-                if res.get("deadline") and res["deadline"] != "Keine Angabe":
-                    md_content += f"**📅 Frist:** {res['deadline']}\n"
-                if res.get("funding") and res["funding"] != "Keine Angabe":
-                    md_content += f"**💰 Förderung:** {res['funding']}\n"
-            else:
-                md_content += f"**Fehler:** {res.get('error', 'Unbekannter Fehler')}\n"
-                md_content += f"**Quelle:** {res['url']}\n"
-            md_content += "\n---\n\n"
-
+    st.subheader("📋 D7-Newsletter-Eintrag")
+    res = st.session_state.last_result
+    if res["status"] == "success":
+        st.markdown(res["summary"])
         # Download-Button
         st.download_button(
-            label="📥 Ergebnisse als Markdown herunterladen",
-            data=md_content,
-            file_name=f"newsletter_export_{len(st.session_state.results)}_urls.md",
+            label="📥 Als Markdown herunterladen",
+            data=res["summary"],
+            file_name=f"{res.get('title', 'ausschreibung')[:30]}.md",
             mime="text/markdown"
         )
+    else:
+        st.error(f"Fehler: {res.get('error', 'Unbekannter Fehler')}")
 
-    # Ergebnisse einzeln anzeigen
-    for res in st.session_state.results:
-        with st.expander(f"**{res.get('title', res['url'])}**", expanded=False):
-            if res["status"] == "success":
-                st.markdown(res["summary"])
-                st.caption(f"Quelle: {res['url']}")
-                if res.get("deadline") and res["deadline"] != "Keine Angabe":
-                    st.caption(f"📅 Frist: {res['deadline']}")
-                if res.get("funding") and res["funding"] != "Keine Angabe":
-                    st.caption(f"💰 Förderung: {res['funding']}")
-            else:
-                st.error(f"Fehler: {res.get('error', 'Unbekannter Fehler')}")
-
-elif start_button:
-    st.warning("Bitte URLs eingeben.")
+elif analyze_button:
+    st.warning("Bitte Text einfügen.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Beta-Newsletter v0.4.0")
+st.sidebar.caption("Beta-Newsletter v0.5.0")
