@@ -87,27 +87,25 @@ class FundingExtractor:
     Extrahiert die projektbezogene Förderhöhe – ignoriert Gesamtbudgets.
     """
     
-    # Muster, die explizit auf Projektförderung hindeuten (Priorität)
-    PRIORITY_PATTERNS = [
-        # D7-typisch: "Funding up to 100% of eligible ..."
+    # Muster für D7-typische Förderhöhen (Priorität)
+    PRIORITY = [
+        # "up to 100% of the eligible project-related expenses as well as a project lump sum of 20%"
         r"(?:Funding|Förderhöhe)\s*(?:up\s+to|bis\s+zu)\s+\d{1,3}%\s+of\s+(?:the\s+)?eligible\s+(?:project-?related\s+)?expenses(?:\s+as\s+well\s+as\s+a\s+project\s+lump\s+sum\s+of\s+\d{1,2}%)?",
         r"(?:Funding|Förderhöhe)\s*(?:bis\s+zu\s+)\d{1,3}%\s+der\s+zuwendungsfähigen\s+(?:projektbezogenen\s+)?Ausgaben(?:\s+sowie\s+eine\s+Projektpauschale\s+in\s+Höhe\s+von\s+\d{1,2}%)?",
-        # "up to € 400,000" im Kontext von "Funding"
-        r"Funding\s*:?\s*up\s+to\s+€?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?(?:\s+\([^)]+\))?",
+        # "up to € 400,000 (including 20% overhead)"
+        r"Funding\s*:?\s*up\s+to\s+€?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?(?:\s*\([^)]+\))?",
         r"Förderhöhe\s*:?\s*bis\s+zu\s+(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?",
+        # "Zuwendung von 400 000 Euro nicht überschreiten"
+        r"Zuwendung\s+von\s+(\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?)\s+Euro",
     ]
     
-    # Fallback-Muster (mit Kontext)
-    FALLBACK_PATTERNS = [
+    # Fallback-Muster
+    FALLBACK = [
         r"(?:Zuwendung|Förderung|Funding)\s+(?:in\s+Höhe\s+von|beträgt|of)\s+[^\d]*(?:€\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
         r"(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Mio\.?|Million)\s*(?:Euro|€)?\s+(?:pro\s+(?:Projekt|Vorhaben|project))",
     ]
     
-    # Begriffe, die auf Gesamtbudget hindeuten → IGNORIEREN
-    IGNORE_CONTEXT = [
-        "insgesamt stehen", "Gesamtbudget", "total budget", "Maßnahme stehen",
-        "Fördervolumen", "für diese Bekanntmachung", "für den Förderzeitraum"
-    ]
+    IGNORE = ["insgesamt stehen", "Gesamtbudget", "total budget", "Maßnahme stehen"]
 
     @classmethod
     def extract(cls, text: str) -> Optional[str]:
@@ -116,38 +114,25 @@ class FundingExtractor:
             
         text_lower = text.lower()
         
-        # Prüfe, ob der Text Gesamtbudget-Signale enthält
-        has_ignore_context = any(ig in text_lower for ig in cls.IGNORE_CONTEXT)
-        
         # 1. Priorisierte Muster
-        for pat in cls.PRIORITY_PATTERNS:
+        for pat in cls.PRIORITY:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
-                # Wenn das Match eine Gruppe enthält (z.B. Betrag), diese zurückgeben
                 if m.groups():
                     return m.group(1).strip()
                 return m.group(0).strip()
         
-        # 2. Fallback-Muster, aber nur wenn KEIN Ignore-Kontext vorliegt
-        if not has_ignore_context:
-            for pat in cls.FALLBACK_PATTERNS:
+        # 2. Fallback – aber nur wenn KEIN Gesamtbudget-Hinweis
+        if not any(ig in text_lower for ig in cls.IGNORE):
+            for pat in cls.FALLBACK:
                 m = re.search(pat, text_lower, re.I)
                 if m:
                     amount = m.group(1)
-                    # Prüfe, ob wirklich projektbezogen
                     ctx = text_lower[max(0, m.start()-100):m.end()+100]
                     if "pro projekt" in ctx or "pro vorhaben" in ctx or "per project" in ctx:
                         if "mio" in ctx or "million" in ctx:
                             return f"{amount} Mio. €"
                         return f"{amount} €"
-        
-        # 3. Letzte Chance: Suche nach "Funding" oder "Förderhöhe" und nimm den umgebenden Satz
-        m = re.search(r"(?:Funding|Förderhöhe)\s*(?:up\s+to\s+)?([^\n]{10,120})", text_lower, re.I)
-        if m:
-            candidate = m.group(1).strip()
-            # Verwerfe, wenn Ignore-Kontext enthalten
-            if not any(ig in candidate.lower() for ig in cls.IGNORE_CONTEXT):
-                return candidate
         
         return None
 
@@ -173,6 +158,43 @@ class InstitutionExtractor:
         return None
 
 
+class AimExtractor:
+    """Extrahiert das Förderziel (Aim) aus dem Text."""
+    PATTERNS = [
+        r"(?:Aim|Ziel)\s*(?:of\s+the\s+funding\s+measure\s+is\s+to\s+)?([^\n]{50,300})",
+        r"(?:Ziel\s+der\s+Förderung\s+ist\s+es,?\s+)([^\n]{50,300})",
+        r"(?:The\s+purpose\s+of\s+this\s+funding\s+measure\s+is\s+to\s+)([^\n]{50,300})",
+    ]
+
+    @classmethod
+    def extract(cls, text: str) -> Optional[str]:
+        if not text:
+            return None
+        for pat in cls.PATTERNS:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+        return None
+
+
+class TargetGroupExtractor:
+    PATTERNS = [
+        r"Target\s+group\s*:?\s*([^\n]{20,200})",
+        r"Zielgruppe\s*:?\s*([^\n]{20,200})",
+        r"Antragsberechtigt\s+sind\s+([^\n]{20,200})",
+    ]
+
+    @classmethod
+    def extract(cls, text: str) -> Optional[str]:
+        if not text:
+            return None
+        for pat in cls.PATTERNS:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+        return None
+
+
 class DurationExtractor:
     PATTERNS = [
         r"(?:Duration|Dauer)\s*(?:up\s+to\s+|bis\s+zu\s+)?(\d+(?:\s*[-–]\s*\d+)?\s*(?:years?|months?|Jahre?|Monate?))",
@@ -193,4 +215,6 @@ class DurationExtractor:
 def extract_deadline(text): return DeadlineExtractor.extract(text)
 def extract_funding(text): return FundingExtractor.extract(text)
 def extract_institution(text): return InstitutionExtractor.extract(text)
+def extract_aim(text): return AimExtractor.extract(text)
+def extract_target_group(text): return TargetGroupExtractor.extract(text)
 def extract_duration(text): return DurationExtractor.extract(text)
