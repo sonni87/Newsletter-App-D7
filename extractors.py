@@ -1,5 +1,5 @@
 """
-Extraktion von Metadaten – optimiert für D7-Newsletter-Standard.
+Extraktion von Metadaten – robuste Muster für D7-Newsletter.
 """
 
 import re
@@ -14,7 +14,7 @@ class DeadlineExtractor:
                  "juli": 7, "august": 8, "september": 9, "oktober": 10, "november": 11, "dezember": 12}
     MONTHS_EN = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
                  "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12}
-    
+
     PATTERNS = [
         (r"(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})", "DMY"),
         (r"(\d{1,2})\.\s*([a-zA-Zäöüß]+)\s*(\d{4})", "DMy"),
@@ -22,13 +22,14 @@ class DeadlineExtractor:
         (r"(\d{1,2})/(\d{1,2})/(\d{4})", "MDY"),
         (r"([a-zA-Z]+)\s+(\d{1,2}),?\s*(\d{4})", "MDY_en"),
     ]
-    
+
     CONTEXT = ["frist", "einreich", "deadline", "bis zum", "stichtag", "submission", "due date"]
 
     @classmethod
     def extract(cls, text: str) -> Optional[str]:
         if not text:
             return None
+        # Header-Bereich
         header = re.search(r"(\d{2}\.\d{2}\.\d{4})\s*[-–]\s*(\d{2}\.\d{2}\.\d{4})", text)
         if header:
             return cls._parse_date_str(header.group(2))
@@ -84,56 +85,35 @@ class DeadlineExtractor:
 
 class FundingExtractor:
     """
-    Extrahiert die projektbezogene Förderhöhe – ignoriert Gesamtbudgets.
+    Extrahiert die projektbezogene Förderhöhe (ignoriert Gesamtbudgets).
     """
-    
-    # Muster für D7-typische Förderhöhen (Priorität)
-    PRIORITY = [
-        # "up to 100% of the eligible project-related expenses as well as a project lump sum of 20%"
-        r"(?:Funding|Förderhöhe)\s*(?:up\s+to|bis\s+zu)\s+\d{1,3}%\s+of\s+(?:the\s+)?eligible\s+(?:project-?related\s+)?expenses(?:\s+as\s+well\s+as\s+a\s+project\s+lump\s+sum\s+of\s+\d{1,2}%)?",
-        r"(?:Funding|Förderhöhe)\s*(?:bis\s+zu\s+)\d{1,3}%\s+der\s+zuwendungsfähigen\s+(?:projektbezogenen\s+)?Ausgaben(?:\s+sowie\s+eine\s+Projektpauschale\s+in\s+Höhe\s+von\s+\d{1,2}%)?",
+    PATTERNS = [
+        # D7-typisch: "Funding up to 100% of eligible expenses ..."
+        r"Funding\s*(?:up\s+to\s+)?\d{1,3}%\s+of\s+(?:the\s+)?eligible\s+(?:project-?related\s+)?expenses(?:\s+as\s+well\s+as\s+a\s+project\s+lump\s+sum\s+of\s+\d{1,2}%)?",
+        r"Förderhöhe\s*(?:bis\s+zu\s+)?\d{1,3}%\s+der\s+zuwendungsfähigen\s+(?:projektbezogenen\s+)?Ausgaben(?:\s+sowie\s+eine\s+Projektpauschale\s+in\s+Höhe\s+von\s+\d{1,2}%)?",
         # "up to € 400,000 (including 20% overhead)"
         r"Funding\s*:?\s*up\s+to\s+€?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?(?:\s*\([^)]+\))?",
         r"Förderhöhe\s*:?\s*bis\s+zu\s+(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)?",
         # "Zuwendung von 400 000 Euro nicht überschreiten"
         r"Zuwendung\s+von\s+(\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?)\s+Euro",
     ]
-    
-    # Fallback-Muster
-    FALLBACK = [
-        r"(?:Zuwendung|Förderung|Funding)\s+(?:in\s+Höhe\s+von|beträgt|of)\s+[^\d]*(?:€\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Euro|€|EUR)",
-        r"(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(?:Mio\.?|Million)\s*(?:Euro|€)?\s+(?:pro\s+(?:Projekt|Vorhaben|project))",
-    ]
-    
+
     IGNORE = ["insgesamt stehen", "Gesamtbudget", "total budget", "Maßnahme stehen"]
 
     @classmethod
     def extract(cls, text: str) -> Optional[str]:
         if not text:
             return None
-            
         text_lower = text.lower()
-        
-        # 1. Priorisierte Muster
-        for pat in cls.PRIORITY:
+        if any(ig in text_lower for ig in cls.IGNORE):
+            # Trotzdem nach projektspezifischer Angabe suchen
+            pass
+        for pat in cls.PATTERNS:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
                 if m.groups():
                     return m.group(1).strip()
                 return m.group(0).strip()
-        
-        # 2. Fallback – aber nur wenn KEIN Gesamtbudget-Hinweis
-        if not any(ig in text_lower for ig in cls.IGNORE):
-            for pat in cls.FALLBACK:
-                m = re.search(pat, text_lower, re.I)
-                if m:
-                    amount = m.group(1)
-                    ctx = text_lower[max(0, m.start()-100):m.end()+100]
-                    if "pro projekt" in ctx or "pro vorhaben" in ctx or "per project" in ctx:
-                        if "mio" in ctx or "million" in ctx:
-                            return f"{amount} Mio. €"
-                        return f"{amount} €"
-        
         return None
 
 
@@ -158,43 +138,6 @@ class InstitutionExtractor:
         return None
 
 
-class AimExtractor:
-    """Extrahiert das Förderziel (Aim) aus dem Text."""
-    PATTERNS = [
-        r"(?:Aim|Ziel)\s*(?:of\s+the\s+funding\s+measure\s+is\s+to\s+)?([^\n]{50,300})",
-        r"(?:Ziel\s+der\s+Förderung\s+ist\s+es,?\s+)([^\n]{50,300})",
-        r"(?:The\s+purpose\s+of\s+this\s+funding\s+measure\s+is\s+to\s+)([^\n]{50,300})",
-    ]
-
-    @classmethod
-    def extract(cls, text: str) -> Optional[str]:
-        if not text:
-            return None
-        for pat in cls.PATTERNS:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                return m.group(1).strip()
-        return None
-
-
-class TargetGroupExtractor:
-    PATTERNS = [
-        r"Target\s+group\s*:?\s*([^\n]{20,200})",
-        r"Zielgruppe\s*:?\s*([^\n]{20,200})",
-        r"Antragsberechtigt\s+sind\s+([^\n]{20,200})",
-    ]
-
-    @classmethod
-    def extract(cls, text: str) -> Optional[str]:
-        if not text:
-            return None
-        for pat in cls.PATTERNS:
-            m = re.search(pat, text, re.IGNORECASE)
-            if m:
-                return m.group(1).strip()
-        return None
-
-
 class DurationExtractor:
     PATTERNS = [
         r"(?:Duration|Dauer)\s*(?:up\s+to\s+|bis\s+zu\s+)?(\d+(?:\s*[-–]\s*\d+)?\s*(?:years?|months?|Jahre?|Monate?))",
@@ -215,6 +158,4 @@ class DurationExtractor:
 def extract_deadline(text): return DeadlineExtractor.extract(text)
 def extract_funding(text): return FundingExtractor.extract(text)
 def extract_institution(text): return InstitutionExtractor.extract(text)
-def extract_aim(text): return AimExtractor.extract(text)
-def extract_target_group(text): return TargetGroupExtractor.extract(text)
 def extract_duration(text): return DurationExtractor.extract(text)
