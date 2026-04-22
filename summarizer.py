@@ -1,34 +1,55 @@
 """
-Kernfunktion – generiert Ausgabe im D7-Newsletter-Format.
+Kernfunktion – D7-Newsletter-Format mit LLM-Unterstützung für Aim/Target Group.
 """
 
 import logging
 from typing import List, Dict, Any, Optional
 
 from scraper import scrape_url
-from extractors import (
-    extract_deadline, extract_funding, extract_institution,
-    extract_aim, extract_target_group, extract_duration
-)
+from extractors import extract_deadline, extract_funding, extract_institution, extract_duration
 from llm_client import LLMClient, KIConnectError
 
 logger = logging.getLogger(__name__)
+
+# Extrem klarer Prompt für das LLM
+LLM_PROMPT = """
+Extrahiere aus dem folgenden Text einer Förderausschreibung zwei Informationen:
+
+1. Aim: Das Hauptziel der Förderung. Was wird gefördert? (2-3 prägnante Sätze, auf Englisch wenn der Text englisch ist)
+2. Target group: Wer ist antragsberechtigt? Welche Einrichtungen/Personen? (1-2 Sätze)
+
+Antworte NUR im folgenden Format (keine zusätzlichen Erklärungen):
+Aim: <Text>
+Target group: <Text>
+
+TEXT:
+{text}
+"""
+
+
+def _get_title_via_llm(text: str, client: LLMClient) -> str:
+    """Fallback: Titel per LLM extrahieren."""
+    prompt = "Wie lautet der offizielle Titel dieser Förderbekanntmachung? Antworte nur mit dem Titel."
+    try:
+        return client.generate(prompt.format(text=text[:2000]), temperature=0.0, max_tokens=100).strip()
+    except:
+        return "Keine Angabe"
 
 
 def _format_d7(title: str, institution: str, aim: str, target: str,
                duration: str, funding: str, deadline: str, url: str,
                internal: bool = False) -> str:
-    """Formatiert nach D7-Newsletter-Standard."""
+    """Formatiert streng nach D7-Newsletter-Standard."""
     lines = [f"## {title}\n"]
-    if aim:
+    if aim and aim != "Keine Angabe":
         lines.append(f"Aim {aim}\n")
-    if target:
+    if target and target != "Keine Angabe":
         lines.append(f"Target group {target}\n")
-    if duration:
+    if duration and duration != "Keine Angabe":
         lines.append(f"Duration {duration}\n")
-    if funding:
+    if funding and funding != "Keine Angabe":
         lines.append(f"Funding {funding}\n")
-    if deadline:
+    if deadline and deadline != "Keine Angabe":
         lines.append(f"Deadline {deadline}\n")
     lines.append(f"Further information website\n")
     if internal:
@@ -78,19 +99,35 @@ def summarize_urls(urls: List[str], client: Optional[LLMClient] = None) -> List[
             results.append(result)
             continue
 
+        # Metadaten per Regex
         deadline = extract_deadline(text) or "Keine Angabe"
         funding = extract_funding(text) or "Keine Angabe"
         institution = extract_institution(text) or "Keine Angabe"
-        aim = extract_aim(text) or "Keine Angabe"
-        target = extract_target_group(text) or "Keine Angabe"
         duration = extract_duration(text) or "Keine Angabe"
 
-        result["deadline"] = deadline
-        result["funding"] = funding
-        result["institution"] = institution
+        # Titel: Falls None oder generisch, LLM-Fallback
+        if not title or title == "Keine Angabe" or "Homepage" in title:
+            title = _get_title_via_llm(text, client)
+
+        # Aim und Target Group per LLM
+        aim = "Keine Angabe"
+        target = "Keine Angabe"
+        try:
+            llm_out = client.generate(LLM_PROMPT.format(text=text[:6000]), temperature=0.1, max_tokens=400)
+            for line in llm_out.split("\n"):
+                if line.startswith("Aim:"):
+                    aim = line[4:].strip()
+                elif line.startswith("Target group:"):
+                    target = line[13:].strip()
+        except Exception as e:
+            logger.warning(f"LLM-Fehler für {url}: {e}")
 
         internal = _needs_internal_procedure(institution)
 
+        result["title"] = title
+        result["deadline"] = deadline
+        result["funding"] = funding
+        result["institution"] = institution
         result["summary"] = _format_d7(
             title, institution, aim, target, duration, funding, deadline, url, internal
         )
