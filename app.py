@@ -17,52 +17,55 @@ st.set_page_config(
 # Custom CSS für Uni-Köln-Design
 st.markdown("""
 <style>
-    /* Hauptüberschrift in Uni-Blau */
-    h1 {
-        color: #005176 !important;
-    }
-    
-    /* Sidebar-Hintergrund */
-    section[data-testid="stSidebar"] {
-        background-color: #F0F4F7;
-    }
-    
-    /* Standard-Buttons in Uni-Türkis */
-    .stButton > button {
-        background-color: #009DCC;
-        color: white;
-        border: none;
-    }
-    .stButton > button:hover {
-        background-color: #007BA1;
-        color: white;
-    }
-    
-    /* Roter Haupt-Button */
-    div[data-testid="stButton"]:has(button:contains("Ausschreibung zusammenfassen")) > button {
-        background-color: #EF7872 !important;
-        color: white !important;
-        font-weight: bold !important;
-    }
-    div[data-testid="stButton"]:has(button:contains("Ausschreibung zusammenfassen")) > button:hover {
-        background-color: #D9655F !important;
-    }
-    
-    /* Download-Buttons in Uni-Korall */
-    .stDownloadButton > button {
-        background-color: #EF7872;
-        color: white;
-        border: none;
-    }
-    .stDownloadButton > button:hover {
-        background-color: #D9655F;
-        color: white;
-    }
-    
-    /* Links */
-    a {
-        color: #009DCC !important;
-    }
+/* Hauptüberschrift in Uni-Blau */
+h1 {
+    color: #005176 !important;
+}
+
+/* Sidebar-Hintergrund */
+section[data-testid="stSidebar"] {
+    background-color: #F0F4F7;
+}
+
+/* Standard-Buttons in Uni-Türkis */
+.stButton > button {
+    background-color: #009DCC;
+    color: white;
+    border: none;
+}
+
+.stButton > button:hover {
+    background-color: #007BA1;
+    color: white;
+}
+
+/* Roter Haupt-Button (Uni Köln Rot #BE0A26) */
+div[data-testid="stButton"]:has(button[kind="primary"]) > button {
+    background-color: #BE0A26 !important;
+    color: white !important;
+    font-weight: bold !important;
+}
+
+div[data-testid="stButton"]:has(button[kind="primary"]) > button:hover {
+    background-color: #99071E !important;
+}
+
+/* Download-Buttons in Uni-Korall */
+.stDownloadButton > button {
+    background-color: #EF7872;
+    color: white;
+    border: none;
+}
+
+.stDownloadButton > button:hover {
+    background-color: #D9655F;
+    color: white;
+}
+
+/* Links */
+a {
+    color: #009DCC !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,6 +83,13 @@ if "selected_model" not in st.session_state:
     st.session_state.selected_model = None
 if "user_text" not in st.session_state:
     st.session_state.user_text = ""
+if "clear_text" not in st.session_state:
+    st.session_state.clear_text = False
+
+# Wenn clear_text gesetzt, Text leeren und Flag zurücksetzen
+if st.session_state.clear_text:
+    st.session_state.user_text = ""
+    st.session_state.clear_text = False
 
 # Sidebar
 with st.sidebar:
@@ -118,23 +128,26 @@ with st.sidebar:
 
     st.divider()
     st.markdown("---")
-    st.caption("Beta-Newsletter – Prompt Client v1.0")
+    st.caption("Beta-Newsletter – Prompt Client v1.1")
 
-# ========== PROMPT (mit Titel-Feld) ==========
-default_prompt = """Du bist Redakteur eines Fördernewsletters für Forschende und Verwaltungsmitarbeiter 
-an deutschen Hochschulen und Forschungseinrichtungen. Deine Aufgabe ist es, 
-Förderausschreibungen präzise und verständlich zusammenzufassen, damit die Leser 
+# ========== VERBESSERTER DEFAULT PROMPT ==========
+default_prompt = """Du bist Redakteur eines Fördernewsletters für Forschende und Verwaltungsmitarbeiter
+an deutschen Hochschulen und Forschungseinrichtungen. Deine Aufgabe ist es,
+Förderausschreibungen präzise und verständlich zusammenzufassen, damit die Leser
 schnell einschätzen können, ob eine Ausschreibung für sie relevant ist.
 
-Analysiere die folgende Förderausschreibung und erstelle eine strukturierte 
-Zusammenfassung. Halte dich exakt an die vorgegebenen Felder und gib ausschließlich 
-die strukturierten Felder aus – ohne Einleitung, Kommentar oder abschließende 
+Analysiere die folgende Förderausschreibung und erstelle eine strukturierte
+Zusammenfassung. Halte dich exakt an die vorgegebenen Felder und gib ausschließlich
+die strukturierten Felder aus – ohne Einleitung, Kommentar oder abschließende
 Bemerkungen.
 
 Regeln:
 - Ist eine Information nicht im Text enthalten, schreibe "Keine Angabe".
-- Bei Spannen oder Varianten (z.B. unterschiedliche Förderhöhen je nach Projekttyp) 
-  nenne den maximalen Wert und ergänze den Kontext in Klammern.
+- Bei der Förderhöhe gilt IMMER: Nenne die maximale Fördersumme PRO PROJEKT oder PRO ANTRAG,
+  NICHT das Gesamtbudget der Förderlinie oder das Gesamtvolumen des Programms.
+  Beispiel: "bis zu 500.000 € pro Projekt (Gesamtprogrammvolumen: 50 Mio. €)" – trenne
+  beides klar. Gibt es Varianten (z.B. verschiedene Projekttypen), nenne alle Varianten
+  mit kurzem Kontext.
 - Formuliere sachlich und präzise, vermeide Marketingsprache aus der Ausschreibung.
 - Verwende deutsche Fachbegriffe, die im Hochschul- und Forschungskontext üblich sind.
 
@@ -146,25 +159,28 @@ Erstelle die Zusammenfassung in folgendem Format:
 
 **Titel:** (Titel oder Name der Ausschreibung)
 
-**Förderung:** (4–6 Sätze: Was wird gefördert? Was ist das Ziel des Programms? 
+**Förderung:** (4–6 Sätze: Was wird gefördert? Was ist das Ziel des Programms?
 Welche Kosten sind förderfähig?)
 
-**Zielgruppe:** (Wer ist antragsberechtigt? Welche Einrichtungen oder Personen 
+**Zielgruppe:** (Wer ist antragsberechtigt? Welche Einrichtungen oder Personen
 können einen Antrag stellen?)
 
 **Dauer:** (Projektlaufzeit)
 
-**Förderhöhe:** (Maximale Fördersumme oder Förderquote)
+**Förderhöhe:** (Maximale Fördersumme ODER Förderquote PRO PROJEKT/VORHABEN –
+NICHT das Gesamtbudget der Förderlinie. Falls nur das Gesamtbudget angegeben ist,
+schreibe "Keine Angabe zur Einzelprojektförderung (Gesamtprogrammvolumen: X)".)
 
-**Eigenanteil:** (Wird von antragstellenden Einrichtungen ein Eigenanteil gefordert? 
+**Eigenanteil:** (Wird von antragstellenden Einrichtungen ein Eigenanteil gefordert?
 Wenn ja: Höhe oder Form des Eigenanteils)
 
 **Fristende:** (Einreichungsfrist)
 
 **Website:** (URL der Ausschreibung)"""
 
-# Zwei Spalten für Prompt und Ausschreibungstext
+# ========== ZWEI SPALTEN: PROMPT | AUSSCHREIBUNGSTEXT ==========
 col1, col2 = st.columns(2)
+
 with col1:
     st.subheader("📝 Prompt")
     prompt_template = st.text_area(
@@ -172,8 +188,18 @@ with col1:
         value=default_prompt,
         height=400
     )
+
 with col2:
-    st.subheader("📄 Ausschreibungstext")
+    # Header-Zeile mit Titel links und "Textfeld leeren"-Button rechts
+    col2_header, col2_btn = st.columns([3, 1])
+    with col2_header:
+        st.subheader("📄 Ausschreibungstext")
+    with col2_btn:
+        st.write("")  # vertikales Alignment
+        if st.button("🧹 Textfeld leeren"):
+            st.session_state.clear_text = True
+            st.rerun()
+
     user_text = st.text_area(
         "Volltext der Ausschreibung einfügen",
         value=st.session_state.user_text,
@@ -181,36 +207,39 @@ with col2:
         placeholder="Den kompletten Ausschreibungstext hier einfügen...",
         key="user_text_input"
     )
-    # Synchronisiere Session State
     st.session_state.user_text = user_text
-
-# --- Button-Zeile: Textfeld leeren (rechts) ---
-col_empty1, col_empty2 = st.columns([5, 1])
-with col_empty2:
-    if st.button("🧹 Textfeld leeren"):
-        st.session_state.user_text = ""
-        st.rerun()
 
 # --- Großer roter Button zentriert ---
 col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
 with col_btn2:
-    if st.button("🚀 Ausschreibung zusammenfassen", use_container_width=True):
-        if not st.session_state.user_text.strip():
-            st.warning("Bitte Ausschreibungstext eingeben.")
-        else:
-            with st.spinner("Anfrage an KI:connect ..."):
-                try:
-                    client = LLMClient(api_key=api_key_input if api_key_input else None)
-                    if st.session_state.selected_model:
-                        client.model = st.session_state.selected_model
-                    final_prompt = prompt_template.replace("{text}", st.session_state.user_text)
-                    response = client.generate(final_prompt, temperature=0.1, max_tokens=2048)
-                    st.session_state.response = response
-                    st.session_state.translated_response = ""
-                except KIConnectError as e:
-                    st.error(f"API-Fehler: {e}")
-                except Exception as e:
-                    st.exception(e)
+    summarize_clicked = st.button(
+        "🚀 Ausschreibung zusammenfassen",
+        use_container_width=True,
+        type="primary"  # Damit der rote CSS-Selector greift
+    )
+
+if summarize_clicked:
+    if not st.session_state.user_text.strip():
+        st.warning("Bitte Ausschreibungstext eingeben.")
+    else:
+        with st.spinner("Anfrage an KI:connect ..."):
+            try:
+                client = LLMClient(api_key=api_key_input if api_key_input else None)
+                if st.session_state.selected_model:
+                    client.model = st.session_state.selected_model
+                final_prompt = prompt_template.replace("{text}", st.session_state.user_text)
+                response = client.generate(final_prompt, temperature=0.1, max_tokens=2048)
+                st.session_state.response = response
+                st.session_state.translated_response = ""
+                # Textfeld nach erfolgreicher Analyse leeren
+                st.session_state.clear_text = True
+            except KIConnectError as e:
+                st.error(f"API-Fehler: {e}")
+            except Exception as e:
+                st.exception(e)
+        # Rerun nach Analyse, damit das Textfeld geleert wird
+        if st.session_state.clear_text:
+            st.rerun()
 
 # Ergebnis anzeigen
 if st.session_state.response:
@@ -275,7 +304,6 @@ Englische Übersetzung:"""
 if st.session_state.translated_response:
     st.subheader("📋 Übersetzung (Englisch)")
     st.markdown(st.session_state.translated_response)
-
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         st.download_button(
