@@ -131,14 +131,42 @@ with st.sidebar:
         ram_used = ram.used / (1024 ** 3)
         ram_total = ram.total / (1024 ** 3)
         ram_pct = ram.percent
-
         st.progress(int(cpu), text=f"CPU: {cpu:.0f}%")
         st.progress(int(ram_pct), text=f"RAM: {ram_used:.1f} / {ram_total:.1f} GB ({ram_pct:.0f}%)")
-
-        if st.button("🔄 Aktualisieren"):
-            st.rerun()
     except ImportError:
-        st.caption("psutil nicht installiert (`pip install psutil`)")
+        # Fallback: /proc direkt lesen (funktioniert auf jedem Linux ohne Pakete)
+        try:
+            # RAM aus /proc/meminfo
+            mem = {}
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    parts = line.split()
+                    mem[parts[0].rstrip(":")] = int(parts[1])
+            ram_total_gb = mem["MemTotal"] / (1024 ** 2)
+            ram_avail_gb = mem["MemAvailable"] / (1024 ** 2)
+            ram_used_gb = ram_total_gb - ram_avail_gb
+            ram_pct = int(ram_used_gb / ram_total_gb * 100)
+
+            # CPU aus /proc/stat (zwei Messungen mit 0.5s Pause)
+            import time
+            def _cpu_times():
+                with open("/proc/stat") as f:
+                    vals = f.readline().split()[1:]
+                return [int(v) for v in vals]
+            t1 = _cpu_times()
+            time.sleep(0.5)
+            t2 = _cpu_times()
+            idle1, idle2 = t1[3], t2[3]
+            total1, total2 = sum(t1), sum(t2)
+            cpu_pct = int(100 * (1 - (idle2 - idle1) / (total2 - total1)))
+
+            st.progress(cpu_pct, text=f"CPU: {cpu_pct}%")
+            st.progress(ram_pct, text=f"RAM: {ram_used_gb:.1f} / {ram_total_gb:.1f} GB ({ram_pct}%)")
+        except Exception as e:
+            st.caption(f"Systeminfo nicht verfügbar: {e}")
+
+    if st.button("🔄 Aktualisieren"):
+        st.rerun()
 
     st.markdown("---")
     st.caption("Beta-Newsletter – Prompt Client v1.1")
