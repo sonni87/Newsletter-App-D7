@@ -5,7 +5,7 @@ API-Dokumentation: https://chat.kiconnect.nrw/app/api-docs/
 
 import os
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import requests
 
@@ -93,8 +93,20 @@ class LLMClient:
             logger.error(f"Verbindungstest fehlgeschlagen: {e}")
             return False
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None,
-                 temperature: float = 0.1, max_tokens: int = 2048) -> str:
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.1,
+        max_tokens: int = 2048
+    ) -> Tuple[str, dict]:
+        """
+        Sendet einen Prompt an die API.
+
+        Returns:
+            Tuple aus (generierter Text, usage-Dict mit prompt_tokens,
+            completion_tokens, total_tokens)
+        """
         api_key = self._ensure_api_key()
         messages = []
         if system_prompt:
@@ -123,14 +135,20 @@ class LLMClient:
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            text = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            })
+            return text, usage
         except requests.exceptions.Timeout:
             raise KIConnectError(f"Timeout nach {self.timeout}s")
         except requests.exceptions.HTTPError as e:
             error_detail = ""
             try:
                 error_detail = response.json()
-            except:
+            except Exception:
                 error_detail = response.text
             raise KIConnectError(f"HTTP {response.status_code}: {error_detail}")
         except Exception as e:
