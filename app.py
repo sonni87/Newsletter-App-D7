@@ -123,6 +123,23 @@ with st.sidebar:
         st.markdown(f"**Aktives Modell:** `{st.session_state.selected_model}`")
 
     st.divider()
+    st.subheader("🖥️ Systemauslastung")
+    try:
+        import psutil
+        ram = psutil.virtual_memory()
+        cpu = psutil.cpu_percent(interval=0.5)
+        ram_used = ram.used / (1024 ** 3)
+        ram_total = ram.total / (1024 ** 3)
+        ram_pct = ram.percent
+
+        st.progress(int(cpu), text=f"CPU: {cpu:.0f}%")
+        st.progress(int(ram_pct), text=f"RAM: {ram_used:.1f} / {ram_total:.1f} GB ({ram_pct:.0f}%)")
+
+        if st.button("🔄 Aktualisieren"):
+            st.rerun()
+    except ImportError:
+        st.caption("psutil nicht installiert (`pip install psutil`)")
+
     st.markdown("---")
     st.caption("Beta-Newsletter – Prompt Client v1.1")
 
