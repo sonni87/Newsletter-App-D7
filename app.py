@@ -17,77 +17,54 @@ st.set_page_config(
 # Custom CSS für Uni-Köln-Design
 st.markdown("""
 <style>
-/* Hauptüberschrift in Uni-Blau */
-h1 {
-    color: #005176 !important;
-}
-
-/* Sidebar-Hintergrund */
-section[data-testid="stSidebar"] {
-    background-color: #F0F4F7;
-}
-
-/* Standard-Buttons in Uni-Türkis */
-.stButton > button {
-    background-color: #009DCC;
-    color: white;
-    border: none;
-}
-
-.stButton > button:hover {
-    background-color: #007BA1;
-    color: white;
-}
-
-/* Roter Haupt-Button (Uni Köln Rot #BE0A26) */
+h1 { color: #005176 !important; }
+section[data-testid="stSidebar"] { background-color: #F0F4F7; }
+.stButton > button { background-color: #009DCC; color: white; border: none; }
+.stButton > button:hover { background-color: #007BA1; color: white; }
 div[data-testid="stButton"]:has(button[kind="primary"]) > button {
-    background-color: #BE0A26 !important;
-    color: white !important;
-    font-weight: bold !important;
+    background-color: #BE0A26 !important; color: white !important; font-weight: bold !important;
 }
-
 div[data-testid="stButton"]:has(button[kind="primary"]) > button:hover {
     background-color: #99071E !important;
 }
-
-/* Download-Buttons in Uni-Korall */
-.stDownloadButton > button {
-    background-color: #EF7872;
-    color: white;
-    border: none;
-}
-
-.stDownloadButton > button:hover {
-    background-color: #D9655F;
-    color: white;
-}
-
-/* Links */
-a {
-    color: #009DCC !important;
-}
+.stDownloadButton > button { background-color: #EF7872; color: white; border: none; }
+.stDownloadButton > button:hover { background-color: #D9655F; color: white; }
+a { color: #009DCC !important; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🤖 KI:connect – Prompt Client zur Zusammenfassung von Ausschreibungstexten")
 st.markdown("Gib deinen Prompt und den Ausschreibungstext ein. Die Antwort wird im Markdown‑Format ausgegeben und kann exportiert werden.")
 
-# Session State
-if "response" not in st.session_state:
-    st.session_state.response = ""
-if "translated_response" not in st.session_state:
-    st.session_state.translated_response = ""
-if "available_models" not in st.session_state:
-    st.session_state.available_models = []
-if "selected_model" not in st.session_state:
-    st.session_state.selected_model = None
-if "user_text" not in st.session_state:
-    st.session_state.user_text = ""
-# text_area_key wird hochgezählt, um das Widget neu zu erzeugen (= leeren)
-if "text_area_key" not in st.session_state:
-    st.session_state.text_area_key = 0
+# --- Session State initialisieren ---
+defaults = {
+    "response": "",
+    "translated_response": "",
+    "available_models": [],
+    "selected_model": None,
+    "user_text": "",
+    "text_area_key": 0,
+    "tokens_session_prompt": 0,
+    "tokens_session_completion": 0,
+    "tokens_session_total": 0,
+    "last_usage": None,
+    "request_count": 0,
+}
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-# Sidebar
+
+def update_token_stats(usage: dict):
+    """Kumuliert Token-Nutzung in der Session."""
+    st.session_state.tokens_session_prompt     += usage.get("prompt_tokens", 0)
+    st.session_state.tokens_session_completion += usage.get("completion_tokens", 0)
+    st.session_state.tokens_session_total      += usage.get("total_tokens", 0)
+    st.session_state.last_usage = usage
+    st.session_state.request_count += 1
+
+
+# ========== SIDEBAR ==========
 with st.sidebar:
     st.header("⚙️ Konfiguration")
     api_key_input = st.text_input(
@@ -122,6 +99,38 @@ with st.sidebar:
         )
         st.markdown(f"**Aktives Modell:** `{st.session_state.selected_model}`")
 
+    # --- Token-Anzeige ---
+    st.divider()
+    st.subheader("🔢 Token-Verbrauch (Session)")
+    if st.session_state.request_count == 0:
+        st.caption("Noch keine Anfragen in dieser Session.")
+    else:
+        st.metric("Anfragen gesamt", st.session_state.request_count)
+        col_tok1, col_tok2 = st.columns(2)
+        with col_tok1:
+            st.metric("Input", f"{st.session_state.tokens_session_prompt:,}".replace(",", "."))
+        with col_tok2:
+            st.metric("Output", f"{st.session_state.tokens_session_completion:,}".replace(",", "."))
+        st.metric(
+            "Tokens gesamt",
+            f"{st.session_state.tokens_session_total:,}".replace(",", ".")
+        )
+        if st.session_state.last_usage:
+            with st.expander("Letzte Anfrage"):
+                lu = st.session_state.last_usage
+                st.caption(
+                    f"Input: {lu.get('prompt_tokens', 0):,} | "
+                    f"Output: {lu.get('completion_tokens', 0):,} | "
+                    f"Gesamt: {lu.get('total_tokens', 0):,}".replace(",", ".")
+                )
+        if st.button("🗑️ Token-Zähler zurücksetzen"):
+            st.session_state.tokens_session_prompt = 0
+            st.session_state.tokens_session_completion = 0
+            st.session_state.tokens_session_total = 0
+            st.session_state.last_usage = None
+            st.session_state.request_count = 0
+            st.rerun()
+
     st.divider()
     st.subheader("🖥️ Systemauslastung")
     try:
@@ -134,9 +143,7 @@ with st.sidebar:
         st.progress(int(cpu), text=f"CPU: {cpu:.0f}%")
         st.progress(int(ram_pct), text=f"RAM: {ram_used:.1f} / {ram_total:.1f} GB ({ram_pct:.0f}%)")
     except ImportError:
-        # Fallback: /proc direkt lesen (funktioniert auf jedem Linux ohne Pakete)
         try:
-            # RAM aus /proc/meminfo
             mem = {}
             with open("/proc/meminfo") as f:
                 for line in f:
@@ -146,20 +153,15 @@ with st.sidebar:
             ram_avail_gb = mem["MemAvailable"] / (1024 ** 2)
             ram_used_gb = ram_total_gb - ram_avail_gb
             ram_pct = int(ram_used_gb / ram_total_gb * 100)
-
-            # CPU aus /proc/stat (zwei Messungen mit 0.5s Pause)
             import time
             def _cpu_times():
                 with open("/proc/stat") as f:
                     vals = f.readline().split()[1:]
                 return [int(v) for v in vals]
-            t1 = _cpu_times()
-            time.sleep(0.5)
-            t2 = _cpu_times()
+            t1 = _cpu_times(); time.sleep(0.5); t2 = _cpu_times()
             idle1, idle2 = t1[3], t2[3]
             total1, total2 = sum(t1), sum(t2)
             cpu_pct = int(100 * (1 - (idle2 - idle1) / (total2 - total1)))
-
             st.progress(cpu_pct, text=f"CPU: {cpu_pct}%")
             st.progress(ram_pct, text=f"RAM: {ram_used_gb:.1f} / {ram_total_gb:.1f} GB ({ram_pct}%)")
         except Exception as e:
@@ -169,9 +171,9 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Beta-Newsletter – Prompt Client v1.1")
+    st.caption("Beta-Newsletter – Prompt Client v1.2")
 
-# ========== DEFAULT PROMPT (an echten Newslettereinträgen orientiert) ==========
+# ========== DEFAULT PROMPT ==========
 default_prompt = """Du bist Redakteur des Fördernewsletters der Universität zu Köln (Division 7 Research
 Management). Du fasst Förderausschreibungen so zusammen, wie sie im Newsletter erscheinen:
 kompakt, sachlich, ohne Einleitungssätze oder Marketingsprache, direkt auf die
@@ -247,12 +249,11 @@ with col1:
     )
 
 with col2:
-    # Header-Zeile mit Titel links und "Textfeld leeren"-Button rechts
     col2_header, col2_btn = st.columns([3, 1])
     with col2_header:
         st.subheader("📄 Ausschreibungstext")
     with col2_btn:
-        st.write("")  # vertikales Alignment
+        st.write("")
         if st.button("🧹 Textfeld leeren"):
             st.session_state.text_area_key += 1
             st.session_state.user_text = ""
@@ -295,19 +296,23 @@ if summarize_clicked:
                 if st.session_state.selected_model:
                     client.model = st.session_state.selected_model
                 final_prompt = prompt_template.replace("{text}", st.session_state.user_text)
-                # URL in den Prompt injizieren, damit sie in "Further information" landet
                 url = st.session_state.get("url_input", "").strip()
                 if url:
-                    final_prompt += f"\n\nDie URL der Ausschreibung lautet: {url}\nTrage diese URL exakt so unter 'Further information' ein."
-                response = client.generate(final_prompt, temperature=0.1, max_tokens=2048)
-                st.session_state.response = response
+                    final_prompt += (
+                        f"\n\nDie URL der Ausschreibung lautet: {url}\n"
+                        "Trage diese URL exakt so unter 'Further information' ein."
+                    )
+                # Tuple-Unpacking: (text, usage)
+                response_text, usage = client.generate(final_prompt, temperature=0.1, max_tokens=2048)
+                st.session_state.response = response_text
                 st.session_state.translated_response = ""
+                update_token_stats(usage)
             except KIConnectError as e:
                 st.error(f"API-Fehler: {e}")
             except Exception as e:
                 st.exception(e)
 
-# Ergebnis anzeigen
+# ========== ERGEBNIS ANZEIGEN ==========
 if st.session_state.response:
     st.divider()
     st.subheader("📋 Antwort (Deutsch)")
@@ -317,7 +322,7 @@ if st.session_state.response:
     with col_down1:
         st.download_button(
             label="📥 Als Markdown (.md)",
-            data=st.session_state.response,
+            data=st.session_state.response,   # garantiert ein String
             file_name="antwort_de.md",
             mime="text/markdown"
         )
@@ -329,28 +334,29 @@ if st.session_state.response:
             mime="text/plain"
         )
 
-    # Button direkt unter der deutschen Antwort – kein extra Textfeld nötig
+    # Übersetzungs-Button direkt unter der deutschen Antwort
     if st.button("🌐 Ins Englische übersetzen"):
         with st.spinner("Übersetze ..."):
             try:
                 client = LLMClient(api_key=api_key_input if api_key_input else None)
                 if st.session_state.selected_model:
                     client.model = st.session_state.selected_model
-                translation_prompt = f"""Übersetze den folgenden deutschen Text präzise und professionell ins Englische.
-WICHTIG: Behalte die **exakte Formatierung** bei, insbesondere **Fettdruck** (z.B. `**Förderung:**` → `**Funding:**`).
-Die Feldbezeichnungen MÜSSEN fett sein.
-Antworte NUR mit der Übersetzung, ohne zusätzliche Erklärungen.
-
-Deutscher Text:
-{st.session_state.response}
-
-Englische Übersetzung:"""
-                translated = client.generate(translation_prompt, temperature=0.1, max_tokens=2048)
-                st.session_state.translated_response = translated
+                translation_prompt = (
+                    "Übersetze den folgenden deutschen Text präzise und professionell ins Englische.\n"
+                    "WICHTIG: Behalte die **exakte Formatierung** bei, insbesondere **Fettdruck** "
+                    "(z.B. `**Förderung:**` → `**Funding:**`).\n"
+                    "Die Feldbezeichnungen MÜSSEN fett sein.\n"
+                    "Antworte NUR mit der Übersetzung, ohne zusätzliche Erklärungen.\n\n"
+                    f"Deutscher Text:\n{st.session_state.response}\n\nEnglische Übersetzung:"
+                )
+                # Tuple-Unpacking: (text, usage)
+                translated_text, usage = client.generate(translation_prompt, temperature=0.1, max_tokens=2048)
+                st.session_state.translated_response = translated_text
+                update_token_stats(usage)
             except Exception as e:
                 st.error(f"Übersetzungsfehler: {e}")
 
-# Englische Übersetzung anzeigen (falls vorhanden)
+# ========== ENGLISCHE ÜBERSETZUNG ==========
 if st.session_state.translated_response:
     st.divider()
     st.subheader("📋 Übersetzung (Englisch)")
@@ -359,7 +365,7 @@ if st.session_state.translated_response:
     with col_t1:
         st.download_button(
             label="📥 Übersetzung als Markdown (.md)",
-            data=st.session_state.translated_response,
+            data=st.session_state.translated_response,  # garantiert ein String
             file_name="antwort_en.md",
             mime="text/markdown"
         )
