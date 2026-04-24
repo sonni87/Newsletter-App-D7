@@ -23,10 +23,19 @@ OllamaError = KIConnectError
 class LLMClient:
     """Client für die KI:connect LLM API (OpenAI-kompatibler Endpunkt)."""
 
+    # Sortiert nach Empfehlung für strukturierte Textanalyse (Newsletter-Zusammenfassungen)
     AVAILABLE_MODELS = [
+        "mistral-small-4-119b-2603",
         "gpt-oss-120b",
         "mistral-small-3.2-24b-instruct-2506",
-        "mistral-small-4-119b-2603",
+    ]
+
+    # Bevorzugte Modelle für Sortierung (höhere Priorität = weiter oben)
+    PREFERRED_ORDER = [
+        "mistral-small-4-119b",
+        "gpt-oss-120b",
+        "mistral-small-3.2-24b",
+        "mistral-small-3-2-24b",
     ]
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
@@ -34,7 +43,7 @@ class LLMClient:
         self.base_url = base_url or os.environ.get(
             "KICONNECT_BASE_URL", "https://chat.kiconnect.nrw/api"
         ).rstrip("/")
-        self.model = os.environ.get("KICONNECT_MODEL", self.AVAILABLE_MODELS[0])
+        self.model = os.environ.get("KICONNECT_MODEL", "mistral-small-4-119b-2603")
         self.timeout = int(os.environ.get("KICONNECT_TIMEOUT", "60"))
 
     def _get_api_key(self) -> str:
@@ -59,6 +68,20 @@ class LLMClient:
             self._api_key = self._get_api_key()
         return self._api_key
 
+    def _sort_models(self, models: List[str]) -> List[str]:
+        """Sortiert Modelle nach Empfehlung (beste zuerst), filtert Embedding-Modelle."""
+        # E5-Modelle sind Embedding-Modelle, nicht für Textgenerierung geeignet
+        chat_models = [m for m in models if "e5-" not in m.lower()]
+
+        def sort_key(model_id: str) -> int:
+            mid = model_id.lower()
+            for i, pref in enumerate(self.PREFERRED_ORDER):
+                if pref in mid:
+                    return i
+            return len(self.PREFERRED_ORDER)
+
+        return sorted(chat_models, key=sort_key)
+
     def list_models(self) -> List[str]:
         api_key = self._ensure_api_key()
         headers = {"Authorization": f"Bearer {api_key}"}
@@ -72,7 +95,8 @@ class LLMClient:
             data = response.json()
             models = [m.get("id", "") for m in data.get("data", [])]
             if models:
-                logger.info(f"Verfügbare Modelle: {models}")
+                models = self._sort_models(models)
+                logger.info(f"Verfügbare Modelle (sortiert): {models}")
                 return models
         except Exception as e:
             logger.warning(f"Konnte Modellliste nicht abrufen: {e}")
