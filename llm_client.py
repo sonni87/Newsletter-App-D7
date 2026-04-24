@@ -71,12 +71,15 @@ class LLMClient:
     def _sort_models(self, models: List[str]) -> List[str]:
         """Sortiert Modelle nach Empfehlung (beste zuerst), filtert Embedding-Modelle."""
         # E5-Modelle sind Embedding-Modelle, nicht für Textgenerierung geeignet
-        chat_models = [m for m in models if "e5-" not in m.lower()]
+        chat_models = [m for m in models if "e5" not in m.lower().replace("-", "").replace(" ", "")]
+
+        def _normalize(s: str) -> str:
+            return s.lower().replace("-", " ").replace("_", " ")
 
         def sort_key(model_id: str) -> int:
-            mid = model_id.lower()
+            mid = _normalize(model_id)
             for i, pref in enumerate(self.PREFERRED_ORDER):
-                if pref in mid:
+                if _normalize(pref) in mid:
                     return i
             return len(self.PREFERRED_ORDER)
 
