@@ -1,5 +1,5 @@
 """
-Kombinierte App – Förder-Screener + Newsletter Summarizer
+Kombinierte App – Call Screener + Call Summarizer
 Universität zu Köln · Dezernat 7 Forschungsmanagement
 """
 
@@ -302,7 +302,7 @@ def fmt(n: int) -> str:
     return f"{n:,}".replace(",", ".")
 
 # =============================================================================
-# Förder-Screener Logik
+# Call Screener Logik
 # =============================================================================
 UML_A = r"(ä|ae)"
 UML_O = r"(ö|oe)"
@@ -553,11 +553,11 @@ def extract_quotes(text: str):
     return "\n\n---\n\n".join(results)
 
 # =============================================================================
-# Sidebar – Konfiguration (nur für Newsletter Summarizer relevant)
+# Sidebar – Konfiguration (nur für Call Summarizer relevant)
 # =============================================================================
 with st.sidebar:
     st.header("⚙️ KI:connect Konfiguration")
-    st.caption("Nur für den Newsletter Summarizer erforderlich.")
+    st.caption("Nur für den Call Summarizer erforderlich.")
     api_key_input = st.text_input(
         "API-Key",
         type="password",
@@ -654,7 +654,7 @@ with st.sidebar:
 # =============================================================================
 st.title("🎓 Newsletteranalyse-Tools · D7 Forschungsmanagement")
 
-tab1, tab2 = st.tabs(["📋 Förder-Screener", "📰 Newsletter Summarizer"])
+tab1, tab2 = st.tabs(["📋 Call Screener", "📰 Call Summarizer"])
 
 # -----------------------------------------------------------------------------
 # TAB 1 – FÖRDER-SCREENER
@@ -792,33 +792,25 @@ Ausgabe NUR in diesem Format:
 **Further information:** / **Website:**"""
 
     # Header-Zeile für beide Spalten
-    head1, head2 = st.columns(2)
+    head1, head2 = st.columns([3, 2])
     with head1:
-        st.markdown(f"<h3 class='uzk-smallcaps'>📝 Prompt</h3>", unsafe_allow_html=True)
-    with head2:
-        h2a, h2b = st.columns([5, 1])
-        with h2a:
+        h1a, h1b = st.columns([5, 1])
+        with h1a:
             st.markdown(f"<h3 class='uzk-smallcaps'>📄 Ausschreibungstext</h3>", unsafe_allow_html=True)
-        with h2b:
+        with h1b:
             st.write("")  # Vertikaler Abstand zum Ausrichten
             if st.button("🧹", key="clear_btn", help="Textfelder leeren"):
                 st.session_state.text_area_key += 1
                 st.session_state.user_text = ""
                 st.session_state.url_input = ""
                 st.rerun()
+    with head2:
+        st.markdown(f"<h3 class='uzk-smallcaps'>📝 Prompt</h3>", unsafe_allow_html=True)
 
     # Textfelder auf gleicher Höhe
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([3, 2])
 
     with col1:
-        prompt_template = st.text_area(
-            "Prompt bearbeiten (Platzhalter `{text}`)",
-            value=default_prompt,
-            height=400,
-            key="prompt_template"
-        )
-
-    with col2:
         user_text = st.text_area(
             "Volltext der Ausschreibung einfügen",
             height=400,
@@ -834,6 +826,14 @@ Ausgabe NUR in diesem Format:
             key=f"url_input_{st.session_state.text_area_key}"
         )
         st.session_state.url_input = url_input
+
+    with col2:
+        prompt_template = st.text_area(
+            "Prompt bearbeiten (Platzhalter `{text}`)",
+            value=default_prompt,
+            height=400,
+            key="prompt_template"
+        )
 
     col_b1, col_b2, col_b3 = st.columns([1, 2, 1])
     with col_b2:
