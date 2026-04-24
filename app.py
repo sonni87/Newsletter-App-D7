@@ -759,6 +759,19 @@ Bullet-Points mit Eckdaten (Laufzeit, Förderhöhe, Zielgruppe, Frist etc.).
 Lies den GESAMTEN Text, aber priorisiere diese strukturierten Übersichten als Quelle
 für Fakten. Prüfe die Details dann im Fließtext.
 
+TERMINOLOGIE-MAPPING (BMBF/BMFTR/Bundesanzeiger → Ausgabefelder):
+Diese Fördergeber nutzen formale Begriffe, die du wie folgt zuordnen musst:
+- "Förderziel und Zuwendungszweck" / "Gegenstand der Förderung" → Ziel
+- "Zuwendungsempfänger" / "Antragsberechtigung" → Zielgruppe
+- "Höhe der Zuwendung" / "Art und Umfang der Zuwendung" → Förderhöhe
+- "Laufzeit der Fördermaßnahme" / "Förderdauer" / "Bewilligungszeitraum" → Laufzeit
+- "Verfahren" / "Einreichungsfrist" / "Vorlagefrist" → Fristende
+- "Zuwendungsvoraussetzungen" → relevante Einschränkungen unter Zielgruppe
+
+STIPENDIEN & FELLOWSHIPS (EMBO, DAAD, Humboldt, HFSP, ERC, Stiftungen):
+Bei Stipendien/Fellowships: Förderhöhe = monatlicher/jährlicher Betrag + Zuschüsse.
+Laufzeit = Stipendiendauer. Zielgruppe = Karrierestufe + Fachgebiet + Nationalität.
+
 REGELN:
 
 1. SPRACHE:
